@@ -51,6 +51,30 @@ pub fn run_event_loop(
     }
 }
 
+/// Apply `AppAction::InjectInclude`: add the Include line to the user's
+/// `~/.ssh/config`, persist the updated state, and surface the outcome on
+/// the status bar.
+pub fn handle_inject_include(app: &mut App) {
+    let (Some(main_cfg), Some(sshs_conf)) = (
+        crate::storage::main_ssh_config_path(),
+        crate::storage::sshs_conf_path(),
+    ) else {
+        app.status_message = Some(StatusMessage::new("could not resolve ssh config paths"));
+        return;
+    };
+    match crate::storage::inject_include(&main_cfg, &sshs_conf) {
+        Ok(()) => {
+            app.state.setup.include_check_done = true;
+            app.state.setup.declined_include_injection = false;
+            let _ = crate::state::save(&app.state);
+            app.status_message = Some(StatusMessage::new("Include added to ~/.ssh/config"));
+        }
+        Err(e) => {
+            app.status_message = Some(StatusMessage::new(format!("include injection failed: {e}")));
+        }
+    }
+}
+
 /// Suspend the TUI, spawn ssh, resume the TUI, then update app state.
 /// `last_connected` is recorded BEFORE spawn so that `r` reconnect works
 /// even after a failed connection attempt. Also mirrors the alias into

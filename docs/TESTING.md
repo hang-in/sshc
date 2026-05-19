@@ -6,9 +6,11 @@ that must be run before tagging a release.
 Scope:
 - §1 Automated checks (every commit must pass)
 - §2 Module-boundary regression greps
-- §3 Manual test checklist (every release)
+- §3 Manual test checklist (v0.2 baseline; every release)
 - §4 mock_ssh fixtures (how the integration tests work)
 - §5 v0.2.0 release readiness checklist
+- §6 v0.3 manual checklist additions (host manager + probe + setup)
+- §7 v0.3.0 release readiness checklist
 
 ---
 
@@ -33,6 +35,22 @@ cargo fmt --check
 | round-trip integration | 5 | `tests/round_trip_test.rs` |
 | ignored (serial-only) | 1 | `tui::lifecycle::test_terminal_active_initial_false` |
 | **total runnable** | **73** | |
+
+### Test counts (as of v0.3.0)
+
+| Suite | Count | Source |
+|---|---|---|
+| lib unit tests | 124 | `src/**/*.rs #[cfg(test)] mod tests` |
+| general integration | 6 | `tests/integration_test.rs` |
+| parser integration | 16 | `tests/parser_test.rs` |
+| probe integration | 2 | `tests/probe_test.rs` |
+| round-trip integration | 5 | `tests/round_trip_test.rs` |
+| setup integration | 6 | `tests/setup_test.rs` |
+| storage integration | 3 | `tests/storage_test.rs` |
+| ignored (serial-only) | 2 | `tui::lifecycle::*` |
+| **total runnable** | **162** | |
+
+Probe tests bind a local listener and probe TEST-NET-1; expect ≤ 5s wall time. Run release-profile (`cargo test --release`) for realistic timing.
 
 To run the ignored serial test (must run alone):
 
@@ -66,9 +84,21 @@ test "$(grep -cvE '^\s*($|//)' src/main.rs)" -le 80 && echo PASS || echo FAIL
 grep -lE "anyhow::Result|anyhow::Error|use anyhow|anyhow!" \
   src/app.rs src/tui/*.rs src/exec/*.rs src/ui/*.rs src/error.rs src/main.rs \
   2>/dev/null && echo FAIL || echo PASS
+
+# R-G6 (v0.3): storage/setup/probe/state modules must not touch TUI
+grep -lE "use crossterm|use ratatui" \
+  src/storage/*.rs src/setup/*.rs src/probe/*.rs src/state/*.rs \
+  2>/dev/null && echo FAIL || echo PASS
+
+# R-G7 (v0.3): probe must not depend on App or UI
+grep -lE "crate::app|crate::ui" src/probe/*.rs 2>/dev/null && echo FAIL || echo PASS
+
+# R-G8 (v0.3): ui/forms + ui/modal must not touch the filesystem or spawn processes
+grep -lE "std::fs|std::process::Command" src/ui/forms/*.rs src/ui/modal.rs \
+  2>/dev/null && echo FAIL || echo PASS
 ```
 
-All five must print `PASS`. If any prints `FAIL`, fix the underlying
+All eight must print `PASS`. If any prints `FAIL`, fix the underlying
 violation rather than relaxing the rule.
 
 ---
@@ -197,6 +227,108 @@ All MUST be true to tag v0.2.0:
 
 The first 7 items are gates that the architect/CI can verify
 mechanically. The last 3 are user-driven.
+
+---
+
+## 6. v0.3 manual checklist additions
+
+v0.3 introduces the host manager flow (add/modify/delete/tags via
+modal forms), probe glyph in the status column, source markers,
+and the first-run Include injection prompt.
+
+Prerequisites:
+- `~/.ssh/config` exists (the first-run flow needs it). At least one
+  unrelated `Host` block — used to verify the source marker.
+- `~/.ssh/config.d/sshs.conf` may or may not exist; first-run sets it up.
+- One reachable host (e.g. `localhost`) and one unreachable (e.g. a host
+  whose `HostName` resolves to `192.0.2.1`).
+
+### 6.1 First-run flow
+
+- [ ] `mv ~/.ssh/config.d/sshs.conf{,.bak} 2>/dev/null` AND remove
+      any prior `Include …/sshs.conf` line from `~/.ssh/config`.
+      Then `rm ~/.config/sshs/state.toml 2>/dev/null` to simulate first run.
+- [ ] `cargo run --release` — TUI starts with a centered confirmation
+      modal: "sshs needs to add an Include line … Allow?".
+- [ ] Press `n` — modal closes, status line shows `sshs.conf` is
+      read-only in subsequent host operations. `~/.config/sshs/state.toml`
+      now records `declined_include_injection = true`.
+- [ ] Restart sshs. Confirmation modal does NOT reappear (state remembered).
+- [ ] Restore: delete `state.toml`, rerun. Confirmation modal returns.
+      This time press `y` — Include line added to `~/.ssh/config`,
+      backup `.bak.sshs-YYYYMMDD` created, status: "Include added".
+
+### 6.2 Add / modify / delete / tags
+
+(Requires sshs.conf in writable state; complete §6.1 with `y` first.)
+
+- [ ] Press `a` — Host form modal opens. Tab through 6 fields.
+- [ ] Submit with `alias=test1`, `HostName=127.0.0.1` only. Modal closes,
+      `test1` appears in the list. `~/.ssh/config.d/sshs.conf` was rewritten.
+- [ ] Press `m` on `test1` — form opens pre-populated. Change port to
+      `2222`. Submit. List + sshs.conf reflect the change.
+- [ ] Press `t` on `test1` — tag form opens. Enter `prod, api`. Submit.
+      List shows `[prod,api] test1` cyan prefix.
+- [ ] Press `/`, type `@prod`, Enter — only `test1` (and any other tagged
+      hosts with `prod` substring) remain visible.
+- [ ] Press `d` on `test1` — Yes/No confirmation. Press `n` — host stays.
+      Press `d` again, press `y` — host removed. sshs.conf updated.
+
+### 6.3 External host (source marker)
+
+- [ ] In `~/.ssh/config` (not sshs.conf), add a `Host external1` block.
+- [ ] Restart sshs (Edit re-parses, but a clean restart picks it up
+      regardless). `external1` shows a `·` marker in the Status column.
+- [ ] Press `m` on `external1` — status shows "this host lives outside
+      sshs.conf; press 'e' to edit source". Form does NOT open.
+- [ ] Press `d` on `external1` — status shows "can only delete sshs.conf
+      hosts". No confirmation modal.
+- [ ] Press `e` on `external1` — `$EDITOR` opens at the right line.
+
+### 6.4 Probe glyph
+
+- [ ] In sshs.conf, ensure one reachable host (`HostName 127.0.0.1`,
+      `Port` = a locally-bound port) and one unreachable
+      (`HostName 192.0.2.1`).
+- [ ] At startup the reachable row's Status glyph eventually settles
+      (T11 wires probe results; placeholder space is acceptable until
+      the probe completes). The unreachable row stays unsettled longer.
+- [ ] Add a host via `a` — new row gets an Unknown initial state, then
+      transitions after the next probe round refreshes.
+
+### 6.5 Narrow terminal
+
+- [ ] Shrink the terminal to ~50 columns. Account column hides first.
+- [ ] Shrink to ~35 columns. Port column hides next.
+- [ ] Shrink to ~28 columns. Host column hides; Alias + Status remain.
+- [ ] Shrink below 60x10. Screen shows "terminal too small (≥60x10)".
+
+### 6.6 Help modal
+
+- [ ] Press `?` — Info modal lists the v0.3 keys
+      (a / d / m / t / e / ? / q). Enter or Esc dismisses.
+
+---
+
+## 7. v0.3.0 release readiness checklist
+
+All MUST be true to tag v0.3.0:
+
+- [ ] R0–R9 commits landed on master
+- [ ] All 162 automated tests pass (release profile)
+- [ ] R-G1..R-G8 regression greps clean
+- [ ] `cargo clippy --all-targets -- -D warnings` 0 warnings
+- [ ] `cargo fmt --check` clean
+- [ ] §3 v0.2 manual checklist still green (regression)
+- [ ] §6 v0.3 manual checklist run by a human on macOS Terminal + iTerm2
+- [ ] First-run flow tested with a clean `state.toml`
+- [ ] Include injection backup file (`.bak.sshs-YYYYMMDD`) verified
+- [ ] `Cargo.toml` `version` bumped to `0.3.0`
+- [ ] CHANGELOG.md updated
+- [ ] README.md updated for v0.3
+- [ ] `git tag v0.3.0` applied
+- [ ] User explicit approval to push the tag
+- [ ] GitHub release notes published
 
 ---
 

@@ -9,7 +9,6 @@ use sshs::error::AppError;
 use sshs::probe::ProbePool;
 use sshs::setup::{run_first_run_checks, SetupOutcome};
 use sshs::state;
-use sshs::storage;
 use sshs::tui::{install_panic_hook, runtime, TerminalGuard};
 use sshs::ui::modal::{ModalAction, ModalKind};
 use sshs::ui::status_bar::StatusMessage;
@@ -65,30 +64,7 @@ fn main() -> Result<(), AppError> {
                 }
                 probe_pool.refresh(&app.hosts);
             }
-            Some(AppAction::InjectInclude) => {
-                match (storage::main_ssh_config_path(), storage::sshs_conf_path()) {
-                    (Some(main_cfg), Some(sshs_conf)) => {
-                        match storage::inject_include(&main_cfg, &sshs_conf) {
-                            Ok(()) => {
-                                app.state.setup.include_check_done = true;
-                                app.state.setup.declined_include_injection = false;
-                                let _ = state::save(&app.state);
-                                app.status_message =
-                                    Some(StatusMessage::new("Include added to ~/.ssh/config"));
-                            }
-                            Err(e) => {
-                                app.status_message = Some(StatusMessage::new(format!(
-                                    "include injection failed: {e}"
-                                )));
-                            }
-                        }
-                    }
-                    _ => {
-                        app.status_message =
-                            Some(StatusMessage::new("could not resolve ssh config paths"));
-                    }
-                }
-            }
+            Some(AppAction::InjectInclude) => runtime::handle_inject_include(&mut app),
             Some(AppAction::DeclineInclude) => {
                 let _ = state::save(&app.state);
             }

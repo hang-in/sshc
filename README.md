@@ -1,20 +1,32 @@
 # sshs
 
-A minimal TUI for managing and connecting to SSH hosts defined in `~/.ssh/config`.
-~/.ssh/config에 정의된 SSH 호스트를 관리하고 연결하는 최소 TUI 애플리케이션.
+A TUI for browsing, connecting to, and managing SSH hosts defined in
+`~/.ssh/config` (and `~/.ssh/config.d/sshs.conf` for sshs-managed entries).
+~/.ssh/config 호스트를 탐색·연결·관리하는 TUI 애플리케이션.
 
 ## Features / 기능
 
-- List all non-wildcard `Host` entries from `~/.ssh/config`
-- Fuzzy filter hosts by alias or hostname
-- One-key SSH connection (replaces current process via `exec()`)
-- Open `$EDITOR` at the exact line of a host block
-- `Include` directive support with circular detection and depth limit
-- Terminal state always restored — even on panic
-- ~/.ssh/config가 없어도 빈 상태로 안전하게 동작
+- **Browse**: list all non-wildcard `Host` entries from `~/.ssh/config`
+  and any `Include`d files, with a 5-column responsive table
+  (Alias | Account | Host | Port | Status).
+- **Filter**: fuzzy search by alias / hostname, or tag-prefix search
+  (`@prod`). Default filter also matches tags as a fallback.
+- **Connect**: one-key SSH (`Enter`) or reconnect to the most recent
+  host (`r`). `★` marks the last-connected host.
+- **Edit**: `e` opens `$EDITOR` at the exact line of the selected host.
+- **Manage** (new in v0.3): `a` add, `m` modify, `d` delete, `t` edit
+  tags — all via modal forms backed by `~/.ssh/config.d/sshs.conf`.
+- **Probe** (new in v0.3): background TCP connect checks surface
+  reachability in the Status column.
+- **Tags** (new in v0.3): per-host tags stored as `# @tags: a, b`
+  comments; rendered as `[t1,t2]` cyan prefix on the Alias column.
+- **Source-aware**: hosts outside sshs.conf are marked `·` and
+  protected from in-TUI edits — press `e` to edit the source file.
+- **Terminal-safe**: raw mode + alt screen restored on exit, error, or
+  panic. Works on Linux and macOS.
 
-  ~/.ssh/config의 와일드카드가 아닌 `Host` 항목을 나열하고, 퍼지 필터로 검색한 뒤
-  Enter 한 번으로 SSH 연결하거나 e 키로 에디터를 해당 줄에서 바로 열 수 있습니다.
+v0.3에서 호스트 추가/수정/삭제(`a`/`m`/`d`)와 태그(`t`),
+백그라운드 프로브, sshs.conf Include 자동 설정이 추가되었습니다.
 
 ## Install / 설치
 
@@ -28,8 +40,12 @@ cargo install --path .
 sshs
 ```
 
-Opens a centered TUI listing all SSH hosts from `~/.ssh/config`.
-화면 중앙에 `~/.ssh/config`의 모든 SSH 호스트가 나열됩니다.
+On first launch sshs offers to add an
+`Include ~/.ssh/config.d/sshs.conf` line to your `~/.ssh/config`
+(with a dated backup). Decline and sshs runs read-only.
+
+처음 실행 시 `~/.ssh/config`에 `Include` 줄 추가를 제안합니다 (백업 자동 생성).
+거절하면 sshs.conf 쓰기 기능은 비활성화되고 탐색·연결만 가능합니다.
 
 ### Keybindings / 키바인딩
 
@@ -37,59 +53,94 @@ Opens a centered TUI listing all SSH hosts from `~/.ssh/config`.
 |-----|--------|------|
 | `↑` / `k` | Move selection up | 위로 이동 |
 | `↓` / `j` | Move selection down | 아래로 이동 |
-| `/` | Enter fuzzy filter mode | 퍼지 필터 모드 진입 |
-| `Enter` | Connect to selected host | 선택한 호스트에 SSH 연결 |
-| `e` | Open `$EDITOR` at host config block | 해당 호스트 설정 줄에서 에디터 열기 |
-| `Esc` | Exit filter mode / Quit | 필터 모드 종료 / 종료 |
+| `/` | Enter fuzzy filter mode (`@tag` for tag filter) | 퍼지/태그 필터 |
+| `Enter` | Connect to selected host | SSH 연결 |
+| `r` | Reconnect to last host | 마지막 호스트 재연결 |
+| `a` | Add host (modal form) | 호스트 추가 |
+| `m` | Modify selected host | 선택 호스트 수정 |
+| `d` | Delete selected host (with confirm) | 선택 호스트 삭제 |
+| `t` | Edit tags on selected host | 태그 편집 |
+| `e` | Open `$EDITOR` at host's line | 에디터로 열기 |
+| `?` | Show help | 도움말 |
+| `Esc` | Exit filter / cancel modal / Quit | 필터 종료/모달 취소/종료 |
 | `q` | Quit | 종료 |
 
-### Editor Jump / 에디터 줄 이동
+Inside a form modal: `Tab` / `Shift+Tab` move between fields,
+`Enter` submits (or advances), `Esc` cancels, `Ctrl+U` clears
+the active field.
 
-When pressing `e`, the editor opens `~/.ssh/config` at the line where the selected `Host` block starts.
-The `+<line>` flag works with `vi`, `vim`, `nvim`, and `nano`.
-Other editors (e.g., `code`, `emacs`) will open the file but may ignore the line specifier.
+### Status column / 상태 컬럼
 
-`e`를 누르면 `~/.ssh/config`를 선택한 `Host` 블록의 시작 줄에서 엽니다.
-`+<줄번호>` 플래그는 `vi`, `vim`, `nvim`, `nano`에서 작동하며,
-`code`, `emacs` 등 다른 에디터는 파일만 열고 줄 이동은 무시할 수 있습니다.
+The 2-character Status column encodes `<probe><marker>`:
+
+- Marker `★`: last-connected host
+- Marker `·`: host lives outside `sshs.conf` (read-only via TUI)
+- Probe glyph: reachability (added in v0.3 — current visualization
+  reserves the slot; visible glyphs land with full wiring)
+
+### sshs.conf / sshs.conf 파일
+
+v0.3 introduces a managed file at `~/.ssh/config.d/sshs.conf` (mode
+`0600`). Hosts you add via `a` are written there with a banner
+warning that manual edits inside `Host` blocks may be overwritten on
+the next save. Your hand-written `~/.ssh/config` is never modified
+beyond a single `Include` line (with a dated `.bak` backup).
+
+`a` 키로 추가한 호스트는 `~/.ssh/config.d/sshs.conf`에 저장됩니다.
+sshs는 메인 `~/.ssh/config`를 직접 건드리지 않고 `Include` 한 줄만 추가합니다
+(백업 자동 생성).
+
+### State file / 상태 파일
+
+`~/.config/sshs/state.toml` (or `$XDG_CONFIG_HOME/sshs/state.toml`)
+remembers:
+
+- whether the user accepted or declined the Include injection
+- the last-connected alias (for `r` reconnect across sessions)
 
 ## Architecture / 아키텍처
 
 ```
 src/
-├── main.rs          — Event loop, panic hook, terminal restore
-├── app.rs           — App state, keybindings, fuzzy filter
+├── main.rs            — bootstrap + first-run setup + AppAction dispatch
+├── app.rs             — state machine (List + Modal modes, probe, state)
 ├── config/
-│   ├── model.rs     — Host struct + Display/fuzzy_match
-│   └── parser.rs    — Hand-rolled SSH config parser (line-aware)
-├── exec/
-│   ├── ssh.rs       — SSH exec() (Unix-only)
-│   └── editor.rs    — $EDITOR +line jump
-└── ui/
-    ├── layout.rs    — Centered panel calculation
-    ├── list.rs      — Host list widget
-    └── mod.rs        — Render integration
+│   ├── model.rs       — Host struct (alias, hostname, port, tags, source)
+│   ├── parser.rs      — Hand-rolled SSH config parser (line-aware)
+│   └── tags.rs        — # @tags: parse + render + normalize
+├── error.rs           — AppError, StorageError, SetupError, ProbeError
+├── exec/              — ssh spawn + $EDITOR
+├── probe/             — TCP connect worker pool + generation guard
+├── setup/             — first-run flow (scaffolding + permission gates)
+├── state/             — state.toml (TOML serde)
+├── storage/           — sshs.conf flock + atomic write + Include injector
+├── tui/               — terminal lifecycle + event loop runtime
+└── ui/                — render, layout, list, status bar, modal, forms
 ```
 
 ## Testing / 테스트
 
 ```sh
-cargo test                              # 30 tests (unit + integration + parser fixtures)
+cargo test --release                     # 162 tests
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 cargo build --release
 ```
 
+See `docs/TESTING.md` for the full automated/manual checklist and the
+R-G1..R-G8 module-boundary regression greps.
+
 ## Limitations / 제한사항
 
-- Unix-only — uses `exec()` to replace the process with SSH (`#[cfg(unix)]` guard)
-- Read-only — edit mode delegates to `$EDITOR`, no direct file writes
-- Fuzzy search is inline substring match (sufficient for <500 hosts)
-- No `Host *` or wildcard patterns in the list view
+- Unix-only (Linux + macOS). No Windows support.
+- Probe glyph visualization will populate as wiring lands; the column
+  is reserved.
+- The `e` editor jump uses the `+<line>` flag; non-vi/vim/nvim/nano
+  editors open the file but may ignore the line specifier.
+- Fuzzy search uses nucleo; sufficient for ≤ 500 hosts.
 
-  Unix 전용(`exec()` 사용), 읽기 전용(편집은 `$EDITOR`에 위임),
-  퍼지 검색은 인라인 서브스트링 매치(500호스트 미만에 충분),
-  와일드카드 `Host *` 패턴은 목록에서 제외됩니다.
+  Linux/macOS 전용, 프로브 글리프는 후속 와이어링 시점에 채워집니다.
+  500호스트 미만에서 nucleo 퍼지 검색이 충분합니다.
 
 ## License / 라이선스
 
