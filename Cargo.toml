@@ -1,0 +1,21 @@
+[package]
+name = "sshs"
+version = "0.1.0"
+edition = "2021"
+description = "Minimal TUI for managing and connecting to SSH hosts defined in ~/.ssh/config"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
+nucleo = "0.5"
+dirs = "6"
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+
+[dev-dependencies]
+assert_fs = "1.1"
+predicates = "3.1"

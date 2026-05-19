@@ -1,0 +1,3 @@
+Host prod
+    HostName prod.example.com
+    User prodadmin
