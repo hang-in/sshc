@@ -166,14 +166,14 @@ fn parse_config_content(
                 block.port = value.parse::<u16>().ok();
             }
             "identityfile" if in_host_block => {
-                block.identity_file = Some(resolve_path(value, base_dir));
+                block.identity_file = Some(resolve_path(&value, base_dir));
             }
             "include" if in_host_block => {
-                let included = resolve_include(value, base_dir, visited, depth);
+                let included = resolve_include(&value, base_dir, visited, depth);
                 hosts.extend(included);
             }
             "include" => {
-                let included = resolve_include(value, base_dir, visited, depth);
+                let included = resolve_include(&value, base_dir, visited, depth);
                 hosts.extend(included);
             }
             _ if in_host_block => {}
@@ -190,8 +190,9 @@ fn parse_config_content(
 }
 
 /// Splits a directive line into (keyword, value).
-/// Returns None for lines that cannot be parsed (malformed).
-fn split_directive(line: &str) -> Option<(&str, &str)> {
+/// Handles double-quoted values (quotes stripped) and inline `#` comments.
+/// Returns None for lines that cannot be parsed (malformed) or have an empty value.
+fn split_directive(line: &str) -> Option<(&str, String)> {
     let line = line.trim();
     if line.is_empty() || line.starts_with('#') {
         return None;
@@ -208,7 +209,25 @@ fn split_directive(line: &str) -> Option<(&str, &str)> {
     }
 
     let keyword = &line[..keyword_end];
-    let value = line[keyword_end..].trim_start_matches(|c: char| c.is_whitespace() || c == '=');
+    let value_raw = line[keyword_end..].trim_start_matches(|c: char| c.is_whitespace() || c == '=');
+
+    if value_raw.is_empty() {
+        return None;
+    }
+
+    // Quoted value: take content up to next `"`, discard anything after closing quote.
+    // Unquoted value: strip trailing inline ` #` comment, then trim trailing whitespace.
+    let value = if let Some(rest) = value_raw.strip_prefix('"') {
+        match rest.find('"') {
+            Some(end) => rest[..end].to_string(),
+            None => rest.to_string(), // unclosed quote: take rest as best-effort
+        }
+    } else {
+        match value_raw.find(" #") {
+            Some(idx) => value_raw[..idx].trim_end().to_string(),
+            None => value_raw.trim_end().to_string(),
+        }
+    };
 
     if value.is_empty() {
         return None;
@@ -329,11 +348,44 @@ mod tests {
     fn test_split_directive() {
         assert_eq!(
             split_directive("HostName web.example.com"),
-            Some(("HostName", "web.example.com"))
+            Some(("HostName", String::from("web.example.com")))
         );
-        assert_eq!(split_directive("  Host = web  "), Some(("Host", "web")));
+        assert_eq!(
+            split_directive("  Host = web  "),
+            Some(("Host", String::from("web")))
+        );
         assert_eq!(split_directive("# comment"), None);
         assert_eq!(split_directive(""), None);
+    }
+
+    #[test]
+    fn test_split_directive_quoted_value() {
+        assert_eq!(
+            split_directive(r#"HostName "my host""#),
+            Some(("HostName", String::from("my host")))
+        );
+        assert_eq!(
+            split_directive(r#"HostName "quoted" # ignored"#),
+            Some(("HostName", String::from("quoted")))
+        );
+    }
+
+    #[test]
+    fn test_split_directive_inline_comment() {
+        assert_eq!(
+            split_directive("HostName a.com # comment"),
+            Some(("HostName", String::from("a.com")))
+        );
+        // No space before `#` — not treated as a comment
+        assert_eq!(
+            split_directive("HostName a.com#notcomment"),
+            Some(("HostName", String::from("a.com#notcomment")))
+        );
+    }
+
+    #[test]
+    fn test_split_directive_empty_value_after_trim() {
+        assert_eq!(split_directive("HostName  "), None);
     }
 
     #[test]
