@@ -14,6 +14,9 @@ pub struct Host {
     pub identity_file: Option<PathBuf>,
     pub line_start: usize,
     pub source_file: PathBuf,
+    /// Tags parsed from a `# @tags: a, b` comment immediately above
+    /// the Host block (no blank line between). Lowercase, deduped.
+    pub tags: Vec<String>,
 }
 
 impl fmt::Display for Host {
@@ -83,6 +86,7 @@ mod tests {
             identity_file: None,
             line_start: 1,
             source_file: PathBuf::from("/test/config"),
+            tags: Vec::new(),
         }
     }
 

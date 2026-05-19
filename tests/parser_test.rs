@@ -167,3 +167,78 @@ fn test_line_numbers_correct() {
     assert_eq!(hosts[0].line_start, 1);
     assert_eq!(hosts[1].line_start, 7);
 }
+
+#[test]
+fn test_parse_tags_attached_to_host() {
+    let dir = assert_fs::TempDir::new().unwrap();
+    let config = dir.child("tags.config");
+    config
+        .write_str("# @tags: prod, api\nHost web\n  HostName web.example.com\n")
+        .unwrap();
+
+    let hosts = parse_config(config.path());
+    assert_eq!(hosts.len(), 1);
+    assert_eq!(hosts[0].alias, "web");
+    assert_eq!(hosts[0].tags, vec!["prod".to_string(), "api".to_string()]);
+}
+
+#[test]
+fn test_parse_tags_discarded_by_blank_line() {
+    // Blank line between @tags and Host => tags do not attach.
+    let dir = assert_fs::TempDir::new().unwrap();
+    let config = dir.child("tags_blank.config");
+    config
+        .write_str("# @tags: prod\n\nHost web\n  HostName web.example.com\n")
+        .unwrap();
+
+    let hosts = parse_config(config.path());
+    assert_eq!(hosts.len(), 1);
+    assert!(hosts[0].tags.is_empty());
+}
+
+#[test]
+fn test_parse_tags_discarded_by_intervening_comment() {
+    // A non-@tags comment between the @tags line and Host => tags do not attach.
+    let dir = assert_fs::TempDir::new().unwrap();
+    let config = dir.child("tags_comment.config");
+    config
+        .write_str("# @tags: prod\n# other comment\nHost web\n  HostName web.example.com\n")
+        .unwrap();
+
+    let hosts = parse_config(config.path());
+    assert_eq!(hosts.len(), 1);
+    assert!(hosts[0].tags.is_empty());
+}
+
+#[test]
+fn test_parse_tags_only_last_tag_line_wins() {
+    // Multiple consecutive @tags lines: only the bottom-most one attaches.
+    let dir = assert_fs::TempDir::new().unwrap();
+    let config = dir.child("tags_multi.config");
+    config
+        .write_str("# @tags: old\n# @tags: new\nHost web\n  HostName web.example.com\n")
+        .unwrap();
+
+    let hosts = parse_config(config.path());
+    assert_eq!(hosts.len(), 1);
+    assert_eq!(hosts[0].tags, vec!["new".to_string()]);
+}
+
+#[test]
+fn test_parse_tags_do_not_leak_to_next_block() {
+    // @tags only attaches to the immediately-following Host; the second Host has no tags.
+    let dir = assert_fs::TempDir::new().unwrap();
+    let config = dir.child("tags_leak.config");
+    config
+        .write_str(
+            "# @tags: a\nHost first\n  HostName first.example.com\n\n\
+             Host second\n  HostName second.example.com\n",
+        )
+        .unwrap();
+
+    let hosts = parse_config(config.path());
+    let first = hosts.iter().find(|h| h.alias == "first").unwrap();
+    let second = hosts.iter().find(|h| h.alias == "second").unwrap();
+    assert_eq!(first.tags, vec!["a".to_string()]);
+    assert!(second.tags.is_empty());
+}

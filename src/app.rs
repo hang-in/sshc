@@ -261,6 +261,7 @@ mod tests {
             identity_file: None,
             line_start: 1,
             source_file: PathBuf::from("/test/config"),
+            tags: Vec::new(),
         }
     }
 

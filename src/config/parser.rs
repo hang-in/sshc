@@ -54,6 +54,7 @@ struct BlockState {
     port: Option<u16>,
     identity_file: Option<PathBuf>,
     line_start: usize,
+    tags: Vec<String>,
 }
 
 impl BlockState {
@@ -65,6 +66,7 @@ impl BlockState {
             port: None,
             identity_file: None,
             line_start: 0,
+            tags: Vec::new(),
         }
     }
 
@@ -75,6 +77,7 @@ impl BlockState {
         self.port = None;
         self.identity_file = None;
         self.line_start = line_start;
+        self.tags = Vec::new();
     }
 
     fn is_active(&self) -> bool {
@@ -94,6 +97,7 @@ fn flush_block(hosts: &mut Vec<Host>, block: &BlockState, source_file: &Path) {
                 identity_file: block.identity_file.clone(),
                 line_start: block.line_start,
                 source_file: source_file.to_path_buf(),
+                tags: block.tags.clone(),
             });
         }
     }
@@ -108,6 +112,10 @@ fn parse_config_content(
     let mut hosts = Vec::new();
     let mut block = BlockState::new();
     let mut in_host_block = false;
+    // Pending tag list parsed from a `# @tags:` comment line. Consumed by the
+    // next Host directive on the same uninterrupted run. Discarded by any
+    // blank line, malformed line, or non-@tags comment.
+    let mut pending_tags: Option<Vec<String>> = None;
 
     let base_dir = source_file.parent().unwrap_or_else(|| Path::new("."));
 
@@ -115,14 +123,23 @@ fn parse_config_content(
         let line_num = line_idx + 1;
         let line = raw_line.trim();
 
-        if line.is_empty() || line.starts_with('#') {
+        if line.is_empty() {
+            pending_tags = None;
+            continue;
+        }
+        if line.starts_with('#') {
+            pending_tags = crate::config::tags::parse_tag_line(line);
             continue;
         }
 
         let (keyword, value) = match split_directive(line) {
             Some(pair) => pair,
-            None => continue,
+            None => {
+                pending_tags = None;
+                continue;
+            }
         };
+        let tags_for_block = pending_tags.take();
 
         match keyword.to_lowercase().as_str() {
             "host" => {
@@ -146,6 +163,9 @@ fn parse_config_content(
                 }
 
                 block.reset(non_wildcard_aliases, line_num);
+                if let Some(tags) = tags_for_block {
+                    block.tags = tags;
+                }
                 in_host_block = true;
             }
             "match" => {
