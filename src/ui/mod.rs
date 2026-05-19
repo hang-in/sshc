@@ -2,7 +2,7 @@ pub mod layout;
 pub mod list;
 pub mod status_bar;
 
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders};
 use ratatui::Frame;
 
@@ -50,9 +50,23 @@ pub fn render(f: &mut Frame, app: &App) {
     let host_list = host_list.highlight_style(selected_style);
     f.render_stateful_widget(host_list, list_area, &mut state);
 
-    // Draw status bar
-    let status_line = list::status_line(app.filter_mode, &app.filter_query);
-    let status_widget = ratatui::widgets::Paragraph::new(status_line)
-        .style(Style::default().add_modifier(Modifier::DIM));
+    // Status row: visible status_message takes priority; otherwise default help/filter line.
+    let visible_msg = app.status_message.as_ref().filter(|m| m.is_visible());
+
+    let (status_line, status_style) = if let Some(msg) = visible_msg {
+        (
+            ratatui::text::Line::from(msg.text().to_string()),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else {
+        (
+            list::status_line(app.filter_mode, &app.filter_query),
+            Style::default().add_modifier(Modifier::DIM),
+        )
+    };
+
+    let status_widget = ratatui::widgets::Paragraph::new(status_line).style(status_style);
     f.render_widget(status_widget, status_area);
 }

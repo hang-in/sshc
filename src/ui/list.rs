@@ -1,4 +1,4 @@
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListState};
 
@@ -40,7 +40,16 @@ pub fn create_host_list<'a>(app: &'a App) -> (List<'a>, ListState) {
                 format!("{:>width$}", port_str, width = PORT_WIDTH)
             };
 
+            // ★ marker for the last-connected host; two-space padding otherwise to
+            // preserve column alignment across rows.
+            let (prefix, prefix_style) = if app.last_connected.as_deref() == Some(alias) {
+                ("★ ", Style::default().fg(Color::Yellow))
+            } else {
+                ("  ", Style::default())
+            };
+
             Line::from(vec![
+                Span::styled(prefix, prefix_style),
                 Span::styled(format!("{}  ", alias_display), Style::default()),
                 Span::styled(host_display, Style::default()),
                 Span::styled(format!("  {}", port_display), Style::default()),
@@ -75,7 +84,7 @@ pub fn status_line(filter_mode: bool, filter_query: &str) -> Line<'static> {
         ))
     } else {
         Line::from(Span::styled(
-            " j/k nav  / filter  Enter ssh  e edit  q quit".to_string(),
+            " j/k nav  / filter  Enter ssh  r reconnect  e edit  q quit".to_string(),
             Style::default().add_modifier(Modifier::DIM),
         ))
     }
