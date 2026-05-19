@@ -46,6 +46,59 @@ fn parse_config_with_depth(path: &Path, visited: &mut HashSet<PathBuf>, depth: u
     parse_config_content(&content, path, visited, depth)
 }
 
+/// State for tracking the current block being parsed.
+struct BlockState {
+    aliases: Vec<String>,
+    hostname: Option<String>,
+    user: Option<String>,
+    port: Option<u16>,
+    identity_file: Option<PathBuf>,
+    line_start: usize,
+}
+
+impl BlockState {
+    fn new() -> Self {
+        Self {
+            aliases: Vec::new(),
+            hostname: None,
+            user: None,
+            port: None,
+            identity_file: None,
+            line_start: 0,
+        }
+    }
+
+    fn reset(&mut self, aliases: Vec<String>, line_start: usize) {
+        self.aliases = aliases;
+        self.hostname = None;
+        self.user = None;
+        self.port = None;
+        self.identity_file = None;
+        self.line_start = line_start;
+    }
+
+    fn is_active(&self) -> bool {
+        !self.aliases.is_empty()
+    }
+}
+
+/// Flush a completed host block into the hosts list.
+fn flush_block(hosts: &mut Vec<Host>, block: &BlockState, source_file: &Path) {
+    if block.is_active() {
+        for alias in &block.aliases {
+            hosts.push(Host {
+                alias: alias.clone(),
+                hostname: block.hostname.clone(),
+                user: block.user.clone(),
+                port: block.port,
+                identity_file: block.identity_file.clone(),
+                line_start: block.line_start,
+                source_file: source_file.to_path_buf(),
+            });
+        }
+    }
+}
+
 fn parse_config_content(
     content: &str,
     source_file: &Path,
@@ -53,92 +106,69 @@ fn parse_config_content(
     depth: usize,
 ) -> Vec<Host> {
     let mut hosts = Vec::new();
-    let mut current_aliases: Vec<String> = Vec::new();
-    let mut current_hostname: Option<String> = None;
-    let mut current_user: Option<String> = None;
-    let mut current_port: Option<u16> = None;
-    let mut current_identity_file: Option<PathBuf> = None;
-    let mut current_line_start: usize = 0;
+    let mut block = BlockState::new();
     let mut in_host_block = false;
 
     let base_dir = source_file.parent().unwrap_or_else(|| Path::new("."));
 
     for (line_idx, raw_line) in content.lines().enumerate() {
-        let line_num = line_idx + 1; // 1-indexed
+        let line_num = line_idx + 1;
         let line = raw_line.trim();
 
-        // Skip empty lines and comments
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
 
-        // Split into keyword and value
         let (keyword, value) = match split_directive(line) {
             Some(pair) => pair,
-            None => continue, // malformed line, skip
+            None => continue,
         };
 
         match keyword.to_lowercase().as_str() {
             "host" => {
                 // Flush previous host block
-                if in_host_block && !current_aliases.is_empty() {
-                    let hostname = current_hostname.take();
-                    let user = current_user.take();
-                    let port = current_port.take();
-                    let identity_file = current_identity_file.take();
-                    let line_start = current_line_start;
-
-                    for alias in current_aliases.drain(..) {
-                        hosts.push(Host {
-                            alias,
-                            hostname: hostname.clone(),
-                            user: user.clone(),
-                            port,
-                            identity_file: identity_file.clone(),
-                            line_start,
-                            source_file: source_file.to_path_buf(),
-                        });
-                    }
+                if in_host_block {
+                    flush_block(&mut hosts, &block, source_file);
+                    block = BlockState::new();
                 }
 
-                // Start new host block
                 let aliases: Vec<String> =
                     value.split_whitespace().map(|s| s.to_string()).collect();
 
-                // Filter out wildcard-only aliases
                 let non_wildcard_aliases: Vec<String> = aliases
                     .into_iter()
                     .filter(|a| !is_wildcard_only(a))
                     .collect();
 
                 if non_wildcard_aliases.is_empty() {
-                    // All aliases are wildcards, skip this block
                     in_host_block = false;
                     continue;
                 }
 
-                current_aliases = non_wildcard_aliases;
-                current_line_start = line_num;
-                current_hostname = None;
-                current_user = None;
-                current_port = None;
-                current_identity_file = None;
+                block.reset(non_wildcard_aliases, line_num);
                 in_host_block = true;
             }
+            "match" => {
+                // Flush current host block and ignore Match block content
+                if in_host_block {
+                    flush_block(&mut hosts, &block, source_file);
+                    block = BlockState::new();
+                }
+                in_host_block = false;
+            }
             "hostname" if in_host_block => {
-                current_hostname = Some(value.to_string());
+                block.hostname = Some(value.to_string());
             }
             "user" if in_host_block => {
-                current_user = Some(value.to_string());
+                block.user = Some(value.to_string());
             }
             "port" if in_host_block => {
-                current_port = value.parse::<u16>().ok();
+                block.port = value.parse::<u16>().ok();
             }
             "identityfile" if in_host_block => {
-                current_identity_file = Some(resolve_path(value, base_dir));
+                block.identity_file = Some(resolve_path(value, base_dir));
             }
             "include" if in_host_block => {
-                // Include inside a Host block is unusual but handle it
                 let included = resolve_include(value, base_dir, visited, depth);
                 hosts.extend(included);
             }
@@ -146,28 +176,14 @@ fn parse_config_content(
                 let included = resolve_include(value, base_dir, visited, depth);
                 hosts.extend(included);
             }
-            _ if in_host_block => {
-                // Other directives inside host block — ignore but keep block active
-            }
-            _ => {
-                // Directive outside host block — ignore
-            }
+            _ if in_host_block => {}
+            _ => {}
         }
     }
 
     // Flush last host block
-    if in_host_block && !current_aliases.is_empty() {
-        for alias in current_aliases {
-            hosts.push(Host {
-                alias,
-                hostname: current_hostname.clone(),
-                user: current_user.clone(),
-                port: current_port,
-                identity_file: current_identity_file.clone(),
-                line_start: current_line_start,
-                source_file: source_file.to_path_buf(),
-            });
-        }
+    if in_host_block {
+        flush_block(&mut hosts, &block, source_file);
     }
 
     hosts
@@ -181,7 +197,6 @@ fn split_directive(line: &str) -> Option<(&str, &str)> {
         return None;
     }
 
-    // Find the end of the keyword (first whitespace or '=')
     let keyword_end = line
         .char_indices()
         .find(|(_, c)| c.is_whitespace() || *c == '=')
@@ -216,7 +231,6 @@ fn resolve_include(
 ) -> Vec<Host> {
     let path = resolve_path(value, base_dir);
 
-    // Support glob patterns in include paths
     if path.to_string_lossy().contains('*') || path.to_string_lossy().contains('?') {
         match glob_paths(&path) {
             Ok(paths) => {
@@ -240,7 +254,6 @@ fn resolve_include(
 fn resolve_path(path_str: &str, base_dir: &Path) -> PathBuf {
     let path_str = path_str.trim();
 
-    // Expand tilde
     if path_str.starts_with("~/") || path_str == "~" {
         if let Some(home) = dirs::home_dir() {
             let rest = path_str.strip_prefix('~').unwrap();
@@ -250,7 +263,6 @@ fn resolve_path(path_str: &str, base_dir: &Path) -> PathBuf {
 
     let path = PathBuf::from(path_str);
 
-    // Make relative paths relative to base_dir
     if path.is_relative() {
         base_dir.join(path)
     } else {
@@ -262,7 +274,6 @@ fn resolve_path(path_str: &str, base_dir: &Path) -> PathBuf {
 fn glob_paths(pattern: &Path) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
     let mut results = Vec::new();
 
-    // Simple glob implementation for common patterns like *.conf
     if let Some(parent) = pattern.parent() {
         if parent.exists() {
             let file_pattern = pattern.file_name().and_then(|f| f.to_str()).unwrap_or("*");
@@ -295,21 +306,19 @@ fn glob_match_internal(p: &[char], s: &[char], pi: usize, si: usize) -> bool {
         return si == s.len();
     }
     if p[pi] == '*' {
-        // Try matching * with 0 or more characters
         for i in si..=s.len() {
             if glob_match_internal(p, s, pi + 1, i) {
                 return true;
             }
         }
-        return false;
+        false
+    } else if si >= s.len() {
+        false
+    } else if p[pi] == '?' || p[pi] == s[si] {
+        glob_match_internal(p, s, pi + 1, si + 1)
+    } else {
+        false
     }
-    if si >= s.len() {
-        return false;
-    }
-    if p[pi] == '?' || p[pi] == s[si] {
-        return glob_match_internal(p, s, pi + 1, si + 1);
-    }
-    false
 }
 
 #[cfg(test)]
@@ -355,5 +364,32 @@ mod tests {
         let base = Path::new("/home/user/.ssh");
         let resolved = resolve_path("/etc/ssh/ssh_config", base);
         assert_eq!(resolved, PathBuf::from("/etc/ssh/ssh_config"));
+    }
+
+    #[test]
+    fn test_match_directive_does_not_leak() {
+        use assert_fs::fixture::{FileWriteStr, PathChild};
+        let dir = assert_fs::TempDir::new().unwrap();
+        let config = dir.child("match_test.config");
+        config
+            .write_str(
+                "Host web\n  HostName web.example.com\n\n\
+                 Match host db\n  HostName should-not-leak.example.com\n  User leaked\n\n\
+                 Host db\n  HostName 192.0.2.1\n",
+            )
+            .unwrap();
+
+        let hosts = parse_config(config.path());
+        assert_eq!(hosts.len(), 2, "Should have 2 Host entries");
+
+        let web = hosts.iter().find(|h| h.alias == "web").unwrap();
+        assert_eq!(web.hostname.as_deref(), Some("web.example.com"));
+        assert!(
+            web.user.is_none(),
+            "web should not have leaked User from Match block"
+        );
+
+        let db = hosts.iter().find(|h| h.alias == "db").unwrap();
+        assert_eq!(db.hostname.as_deref(), Some("192.0.2.1"));
     }
 }
