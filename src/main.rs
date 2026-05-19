@@ -37,21 +37,31 @@ fn main() -> anyhow::Result<()> {
     // Run event loop
     let result = run_app(&mut terminal, &mut app);
 
-    // Restore terminal BEFORE any further action
+    // Restore terminal BEFORE any further action.
+    // Order: LeaveAlternateScreen → disable_raw_mode (per crossterm recommendation)
     restore_terminal(&mut terminal)?;
 
     // Handle result from event loop
     result?;
 
-    // Post-TUI actions (terminal is now restored)
+    // Post-TUI actions (terminal is now restored, terminal variable no longer needed)
     if app.should_connect {
         if let Some(host) = app.selected_host() {
+            // Drop terminal before exec to ensure cleanup
+            drop(terminal);
             ssh_connect(&host.alias)?;
         }
     } else if app.should_edit {
         if let Some(host) = app.selected_host() {
             let mut cmd = build_editor_command(&host.source_file, host.line_start);
-            let _status = cmd.status();
+            let status = cmd.status();
+
+            // Check if editor exited normally
+            if let Err(e) = status {
+                log::error!("Editor command failed: {}", e);
+                // Terminal is already restored, just report error
+                return Err(e.into());
+            }
 
             // After editor exits, re-parse and re-run TUI
             let new_hosts = parse_config(&config_path);
@@ -63,10 +73,12 @@ fn main() -> anyhow::Result<()> {
             let mut terminal = Terminal::new(backend)?;
             let result = run_app(&mut terminal, &mut app);
             restore_terminal(&mut terminal)?;
+
             result?;
 
             if app.should_connect {
                 if let Some(host) = app.selected_host() {
+                    drop(terminal);
                     ssh_connect(&host.alias)?;
                 }
             }
@@ -84,8 +96,9 @@ fn setup_terminal() -> anyhow::Result<CrosstermBackend<io::Stdout>> {
 }
 
 fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> anyhow::Result<()> {
-    disable_raw_mode()?;
+    // crossterm recommended order: leave alternate screen first, then disable raw mode
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    disable_raw_mode()?;
     terminal.show_cursor()?;
     Ok(())
 }
@@ -113,17 +126,16 @@ fn run_app(
     }
 }
 
-/// Installs a panic hook that restores the terminal state before printing the panic info.
+/// Installs a panic hook that restores the terminal state before the default handler runs.
 /// Without this, a panic would leave the terminal in raw mode with the alternate screen active.
 fn setup_panic_hook() {
     let default_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic_info| {
-        // Restore terminal state FIRST
-        let _ = disable_raw_mode();
+        // Restore terminal state FIRST, in correct order
         let _ = execute!(io::stdout(), LeaveAlternateScreen);
+        let _ = disable_raw_mode();
         let _ = execute!(io::stdout(), crossterm::cursor::Show);
-        eprintln!("{}", panic_info);
-        // Then run the default hook (which may also print to stderr)
+        // Only call the default hook (which prints to stderr) — don't duplicate output
         default_hook(panic_info);
     }));
 }
