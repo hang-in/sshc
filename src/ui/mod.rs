@@ -1,5 +1,6 @@
 pub mod layout;
 pub mod list;
+pub mod status_bar;
 
 use ratatui::style::{Modifier, Style};
 use ratatui::widgets::{Block, Borders};
