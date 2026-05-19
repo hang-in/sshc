@@ -109,9 +109,40 @@ fn test_parse_include_tilde_expansion() {
 #[test]
 fn test_parse_malformed_recovers() {
     let hosts = parse_config(&fixture_path("malformed.config"));
-    let aliases: Vec<&str> = hosts.iter().map(|h| h.alias.as_str()).collect();
-    assert!(aliases.contains(&"web"));
-    assert!(aliases.contains(&"db"));
+    let web = hosts
+        .iter()
+        .find(|h| h.alias == "web")
+        .expect("web host missing");
+    let db = hosts
+        .iter()
+        .find(|h| h.alias == "db")
+        .expect("db host missing");
+
+    // web should not be contaminated by "this is garbage" / "IndentedNoKey"
+    assert_eq!(web.hostname.as_deref(), Some("web.example.com"));
+    assert_eq!(web.user.as_deref(), Some("deploy"));
+    assert_eq!(web.port, None);
+
+    // db's `Port` directive has no value, should silently produce None
+    assert_eq!(db.hostname.as_deref(), Some("192.0.2.1"));
+    assert_eq!(db.port, None);
+}
+
+#[test]
+fn test_parse_circular_include_terminates() {
+    // circular_a.config includes circular_b.config which includes circular_a.config.
+    // The HashSet-based visited check should break the cycle without infinite recursion.
+    let hosts = parse_config(&fixture_path("circular_a.config"));
+    assert!(
+        hosts.iter().any(|h| h.alias == "hostA"),
+        "hostA missing from cycle parse"
+    );
+    assert!(
+        hosts.iter().any(|h| h.alias == "hostB"),
+        "hostB missing from cycle parse"
+    );
+    // Each host should be parsed exactly once despite the cycle
+    assert_eq!(hosts.len(), 2);
 }
 
 #[test]
