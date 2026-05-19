@@ -13,7 +13,7 @@ use ratatui::Terminal;
 use sshs::app::App;
 use sshs::config::parser::parse_config;
 use sshs::exec::editor::build_editor_command;
-use sshs::exec::ssh::ssh_connect;
+use sshs::exec::ssh::ssh_run;
 use sshs::ui;
 
 fn main() -> anyhow::Result<()> {
@@ -49,7 +49,7 @@ fn main() -> anyhow::Result<()> {
         if let Some(host) = app.selected_host() {
             // Drop terminal before exec to ensure cleanup
             drop(terminal);
-            ssh_connect(&host.alias)?;
+            let _ = ssh_run(&host.alias, "ssh").map_err(|e| anyhow::anyhow!(e.to_string()))?;
         }
     } else if app.should_edit {
         if let Some(host) = app.selected_host() {
@@ -85,7 +85,8 @@ fn main() -> anyhow::Result<()> {
             if app.should_connect {
                 if let Some(host) = app.selected_host() {
                     drop(terminal);
-                    ssh_connect(&host.alias)?;
+                    let _ =
+                        ssh_run(&host.alias, "ssh").map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 }
             }
         }
