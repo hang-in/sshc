@@ -1,2 +1,3 @@
 pub mod lifecycle;
+pub mod runtime;
 pub use lifecycle::{install_panic_hook, TerminalGuard};
