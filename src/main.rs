@@ -28,6 +28,13 @@ fn main() -> Result<(), AppError> {
             Some(AppAction::Connect(alias)) => {
                 runtime::handle_connect(&mut guard, &mut terminal, &mut app, &alias)?
             }
+            Some(AppAction::SaveState)
+            | Some(AppAction::InjectInclude)
+            | Some(AppAction::DeclineInclude) => {
+                // R7/T11 wires these up. For R6, the state mutations have
+                // already happened in-memory inside App; persistence and
+                // include-injection land in the runtime layer next round.
+            }
         }
     }
     Ok(())
