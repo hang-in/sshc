@@ -33,7 +33,7 @@ pub fn run_event_loop(
                 }
             }
         }
-        if app.should_quit || app.should_connect || app.should_edit {
+        if app.has_pending_action() {
             return Ok(());
         }
     }

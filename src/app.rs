@@ -19,9 +19,6 @@ pub struct App {
     pub filter_mode: bool,
     pub filter_query: String,
     pub scroll_offset: usize,
-    pub should_quit: bool,
-    pub should_connect: bool,
-    pub should_edit: bool,
     pub last_connected: Option<String>,
     pub status_message: Option<StatusMessage>,
     pending_action: Option<AppAction>,
@@ -38,9 +35,6 @@ impl App {
             filter_mode: false,
             filter_query: String::new(),
             scroll_offset: 0,
-            should_quit: false,
-            should_connect: false,
-            should_edit: false,
             last_connected: None,
             status_message: None,
             pending_action: None,
@@ -54,7 +48,6 @@ impl App {
                 KeyCode::Esc => {
                     self.filter_mode = false;
                     if self.filter_query.is_empty() {
-                        self.should_quit = true;
                         self.pending_action = Some(AppAction::Quit);
                     } else {
                         self.filter_query.clear();
@@ -64,7 +57,6 @@ impl App {
                 KeyCode::Enter => {
                     self.filter_mode = false;
                     if !self.filtered.is_empty() {
-                        self.should_connect = true;
                         if let Some(alias) = self.selected_host().map(|h| h.alias.clone()) {
                             self.pending_action = Some(AppAction::Connect(alias));
                         }
@@ -93,7 +85,6 @@ impl App {
                 }
                 KeyCode::Enter => {
                     if !self.filtered.is_empty() {
-                        self.should_connect = true;
                         if let Some(alias) = self.selected_host().map(|h| h.alias.clone()) {
                             self.pending_action = Some(AppAction::Connect(alias));
                         }
@@ -101,7 +92,6 @@ impl App {
                 }
                 KeyCode::Char('e') => {
                     if !self.filtered.is_empty() {
-                        self.should_edit = true;
                         self.pending_action = Some(AppAction::EditConfig);
                     }
                 }
@@ -109,7 +99,6 @@ impl App {
                     self.try_reconnect();
                 }
                 KeyCode::Char('q') | KeyCode::Esc => {
-                    self.should_quit = true;
                     self.pending_action = Some(AppAction::Quit);
                 }
                 _ => {}
@@ -117,13 +106,15 @@ impl App {
         }
     }
 
-    /// Drain the pending action. Also clears legacy should_* flags.
+    /// Drain the pending action.
     pub fn take_action(&mut self) -> Option<AppAction> {
-        let action = self.pending_action.take();
-        self.should_quit = false;
-        self.should_connect = false;
-        self.should_edit = false;
-        action
+        self.pending_action.take()
+    }
+
+    /// Whether handle_key has set a pending action waiting to be taken.
+    /// Used by the event loop to break out and route the action.
+    pub fn has_pending_action(&self) -> bool {
+        self.pending_action.is_some()
     }
 
     /// Update status_message based on ssh exit. Silent for Success/Interrupted.
@@ -254,19 +245,6 @@ impl App {
     pub fn total_host_count(&self) -> usize {
         self.hosts.len()
     }
-
-    pub fn reset_actions(&mut self) {
-        self.should_quit = false;
-        self.should_connect = false;
-        self.should_edit = false;
-        self.pending_action = None;
-    }
-
-    /// Legacy name kept for v0.1 main.rs compatibility — delegates to replace_hosts.
-    /// Removed in T8 (R4) when main.rs is rewritten.
-    pub fn refresh_hosts(&mut self, hosts: Vec<Host>) {
-        self.replace_hosts(hosts);
-    }
 }
 
 #[cfg(test)]
@@ -322,7 +300,6 @@ mod tests {
         let hosts = vec![make_host("a")];
         let mut app = App::new(hosts);
         app.handle_key(KeyEvent::from(KeyCode::Esc));
-        assert!(app.should_quit);
         assert_eq!(app.take_action(), Some(AppAction::Quit));
     }
 
@@ -331,7 +308,6 @@ mod tests {
         let hosts = vec![make_host("a")];
         let mut app = App::new(hosts);
         app.handle_key(KeyEvent::from(KeyCode::Enter));
-        assert!(app.should_connect);
         assert_eq!(app.take_action(), Some(AppAction::Connect("a".to_string())));
     }
 
