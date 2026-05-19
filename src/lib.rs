@@ -2,6 +2,8 @@ pub mod app;
 pub mod config;
 pub mod error;
 pub mod exec;
+pub mod probe;
 pub mod state;
+pub mod storage;
 pub mod tui;
 pub mod ui;

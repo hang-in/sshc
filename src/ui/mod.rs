@@ -1,5 +1,6 @@
 pub mod layout;
 pub mod list;
+pub mod modal;
 pub mod status_bar;
 
 use ratatui::style::{Color, Modifier, Style};
