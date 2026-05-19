@@ -330,8 +330,13 @@ impl App {
             }
             _ => Ok(()),
         };
-        if let Err(e) = result {
-            self.status_message = Some(StatusMessage::new(format!("form apply failed: {e}")));
+        match result {
+            Ok(()) => {
+                self.pending_action = Some(AppAction::SaveState);
+            }
+            Err(e) => {
+                self.status_message = Some(StatusMessage::new(format!("form apply failed: {e}")));
+            }
         }
     }
 
@@ -559,6 +564,7 @@ impl App {
                 self.status_message = Some(StatusMessage::new(format!("delete failed: {e}")));
             } else {
                 self.apply_filter();
+                self.pending_action = Some(AppAction::SaveState);
             }
         }
     }

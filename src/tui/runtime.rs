@@ -15,16 +15,28 @@ use crate::config::parser::parse_config;
 use crate::error::AppError;
 use crate::exec::editor::build_editor_command;
 use crate::exec::ssh::ssh_run;
+use crate::probe::ProbePool;
 use crate::tui::TerminalGuard;
 use crate::ui;
 use crate::ui::status_bar::StatusMessage;
 
 /// Run the TUI event loop until the user signals an action.
+///
+/// Each iteration drains any available ProbeUpdates from `probe_pool` into
+/// `app` BEFORE the draw, so probe-glyph changes appear with minimal latency
+/// (≤ one poll interval). Modal-mode short-circuit lives inside
+/// `App::handle_key` — runtime hands every keystroke to App, which routes
+/// it to the modal handler when `app.mode` is not `List`.
 pub fn run_event_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
+    probe_pool: &ProbePool,
 ) -> Result<(), AppError> {
     loop {
+        let updates = probe_pool.poll_updates();
+        if !updates.is_empty() {
+            app.apply_probe_updates(updates);
+        }
         terminal.draw(|f| ui::render(f, app))?;
         if event::poll(Duration::from_millis(250))? {
             if let Event::Key(key) = event::read()? {
@@ -41,7 +53,8 @@ pub fn run_event_loop(
 
 /// Suspend the TUI, spawn ssh, resume the TUI, then update app state.
 /// `last_connected` is recorded BEFORE spawn so that `r` reconnect works
-/// even after a failed connection attempt.
+/// even after a failed connection attempt. Also mirrors the alias into
+/// `app.state.memory` so the next startup remembers it.
 pub fn handle_connect(
     guard: &mut TerminalGuard,
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -49,6 +62,7 @@ pub fn handle_connect(
     alias: &str,
 ) -> Result<(), AppError> {
     app.last_connected = Some(alias.to_string());
+    app.state.memory.last_connected_alias = Some(alias.to_string());
     guard.suspend()?;
     let result = ssh_run(alias, "ssh");
     guard.resume()?;
