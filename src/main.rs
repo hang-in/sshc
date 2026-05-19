@@ -57,10 +57,16 @@ fn main() -> anyhow::Result<()> {
             let status = cmd.status();
 
             // Check if editor exited normally
-            if let Err(e) = status {
-                log::error!("Editor command failed: {}", e);
-                // Terminal is already restored, just report error
-                return Err(e.into());
+            match status {
+                Ok(s) if !s.success() => {
+                    log::warn!("Editor exited with non-zero status: {}", s);
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    log::error!("Editor command failed to launch: {}", e);
+                    // Terminal is already restored, just report error
+                    return Err(e.into());
+                }
             }
 
             // After editor exits, re-parse and re-run TUI
