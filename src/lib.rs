@@ -3,6 +3,7 @@ pub mod config;
 pub mod error;
 pub mod exec;
 pub mod probe;
+pub mod setup;
 pub mod state;
 pub mod storage;
 pub mod tui;
