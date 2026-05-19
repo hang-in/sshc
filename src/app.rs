@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent};
+use nucleo::Matcher;
 
 use crate::config::model::Host;
 
@@ -13,6 +14,7 @@ pub struct App {
     pub should_quit: bool,
     pub should_connect: bool,
     pub should_edit: bool,
+    matcher: Matcher,
 }
 
 impl App {
@@ -28,6 +30,7 @@ impl App {
             should_quit: false,
             should_connect: false,
             should_edit: false,
+            matcher: Matcher::new(nucleo::Config::DEFAULT),
         }
     }
 
@@ -89,13 +92,27 @@ impl App {
     }
 
     fn apply_filter(&mut self) {
-        self.filtered = self
+        let query = self.filter_query.clone();
+        // Collect (index, score) pairs, filter by score > 0
+        let mut scored: Vec<(usize, u32)> = self
             .hosts
             .iter()
             .enumerate()
-            .filter(|(_, host)| host.fuzzy_match(&self.filter_query))
-            .map(|(i, _)| i)
+            .filter_map(|(i, host)| {
+                let score = host.fuzzy_score(&query, &mut self.matcher);
+                if score > 0 {
+                    Some((i, score))
+                } else {
+                    None
+                }
+            })
             .collect();
+
+        // Sort by score descending (best matches first)
+        scored.sort_by(|a, b| b.1.cmp(&a.1));
+
+        self.filtered = scored.into_iter().map(|(i, _)| i).collect();
+
         if self.selected >= self.filtered.len() && !self.filtered.is_empty() {
             self.selected = self.filtered.len() - 1;
         }
@@ -120,7 +137,6 @@ impl App {
     }
 
     fn adjust_scroll(&mut self) {
-        // Keep selection visible in the viewport (assume viewport height will be set during render)
         if self.selected < self.scroll_offset {
             self.scroll_offset = self.selected;
         }
@@ -207,8 +223,14 @@ mod tests {
         app.apply_filter();
 
         assert_eq!(app.filtered.len(), 2);
-        assert_eq!(app.hosts[app.filtered[0]].alias, "web");
-        assert_eq!(app.hosts[app.filtered[1]].alias, "web-prod");
+        // Filtered should contain "web" and "web-prod"
+        let aliases: Vec<&str> = app
+            .filtered
+            .iter()
+            .map(|&i| app.hosts[i].alias.as_str())
+            .collect();
+        assert!(aliases.contains(&"web"));
+        assert!(aliases.contains(&"web-prod"));
     }
 
     #[test]

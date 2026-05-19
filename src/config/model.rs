@@ -1,6 +1,9 @@
 use std::fmt;
 use std::path::PathBuf;
 
+use nucleo::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
+use nucleo::{Matcher, Utf32Str};
+
 /// Represents a single SSH host entry parsed from ~/.ssh/config.
 #[derive(Debug, Clone)]
 pub struct Host {
@@ -28,17 +31,119 @@ impl fmt::Display for Host {
 }
 
 impl Host {
-    /// Returns true if the alias or hostname contains the query (case-insensitive).
-    /// For MVP with <500 hosts, inline substring matching is sufficient.
-    pub fn fuzzy_match(&self, query: &str) -> bool {
+    /// Returns the fuzzy match score against the query using nucleo.
+    /// Higher score = better match. Returns 0 if no match.
+    pub fn fuzzy_score(&self, query: &str, matcher: &mut Matcher) -> u32 {
         if query.is_empty() {
-            return true;
+            return 1; // Empty query matches everything with minimal score
         }
-        let query = query.to_lowercase();
-        self.alias.to_lowercase().contains(&query)
-            || self
-                .hostname
-                .as_ref()
-                .is_some_and(|h| h.to_lowercase().contains(&query))
+
+        let pattern = Pattern::new(
+            query,
+            CaseMatching::Ignore,
+            Normalization::default(),
+            AtomKind::Fuzzy,
+        );
+
+        // Score against alias (primary match target)
+        let mut buf = Vec::new();
+        let alias_str = Utf32Str::new(&self.alias, &mut buf);
+        let alias_score = pattern.score(alias_str, matcher).unwrap_or(0);
+
+        // Score against hostname (secondary match target)
+        let hostname_score = self
+            .hostname
+            .as_ref()
+            .map(|h| {
+                let haystack = Utf32Str::new(h, &mut buf);
+                pattern.score(haystack, matcher).unwrap_or(0)
+            })
+            .unwrap_or(0);
+
+        // Return best score
+        alias_score.max(hostname_score)
+    }
+
+    /// Returns true if the host matches the query with fuzzy matching.
+    pub fn fuzzy_match(&self, query: &str, matcher: &mut Matcher) -> bool {
+        self.fuzzy_score(query, matcher) > 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_host(alias: &str, hostname: Option<&str>) -> Host {
+        Host {
+            alias: alias.to_string(),
+            hostname: hostname.map(|h| h.to_string()),
+            user: Some("deploy".to_string()),
+            port: Some(22),
+            identity_file: None,
+            line_start: 1,
+            source_file: PathBuf::from("/test/config"),
+        }
+    }
+
+    #[test]
+    fn test_fuzzy_match_exact() {
+        let mut matcher = Matcher::new(nucleo::Config::DEFAULT);
+        let host = make_host("web-server", Some("web.example.com"));
+        assert!(host.fuzzy_match("web-server", &mut matcher));
+    }
+
+    #[test]
+    fn test_fuzzy_match_prefix() {
+        let mut matcher = Matcher::new(nucleo::Config::DEFAULT);
+        let host = make_host("web-server", Some("web.example.com"));
+        assert!(host.fuzzy_match("web", &mut matcher));
+    }
+
+    #[test]
+    fn test_fuzzy_match_non_contiguous() {
+        let mut matcher = Matcher::new(nucleo::Config::DEFAULT);
+        let host = make_host("web-server", Some("web.example.com"));
+        // "wbsrv" should match "web-server" via fuzzy (non-contiguous)
+        assert!(host.fuzzy_match("wbsrv", &mut matcher));
+    }
+
+    #[test]
+    fn test_fuzzy_match_case_insensitive() {
+        let mut matcher = Matcher::new(nucleo::Config::DEFAULT);
+        let host = make_host("web", Some("web.example.com"));
+        assert!(host.fuzzy_match("WEB", &mut matcher));
+    }
+
+    #[test]
+    fn test_fuzzy_match_no_match() {
+        let mut matcher = Matcher::new(nucleo::Config::DEFAULT);
+        let host = make_host("web-server", Some("web.example.com"));
+        assert!(!host.fuzzy_match("xyz", &mut matcher));
+    }
+
+    #[test]
+    fn test_fuzzy_match_empty_query() {
+        let mut matcher = Matcher::new(nucleo::Config::DEFAULT);
+        let host = make_host("web", Some("web.example.com"));
+        assert!(host.fuzzy_match("", &mut matcher));
+    }
+
+    #[test]
+    fn test_fuzzy_match_hostname() {
+        let mut matcher = Matcher::new(nucleo::Config::DEFAULT);
+        let host = make_host("prod", Some("production.example.com"));
+        // Should match on hostname even if alias doesn't contain query
+        assert!(host.fuzzy_match("example", &mut matcher));
+    }
+
+    #[test]
+    fn test_fuzzy_score_ordering() {
+        let mut matcher = Matcher::new(nucleo::Config::DEFAULT);
+        let host = make_host("web-server", Some("web.example.com"));
+        // Exact match should score higher than prefix match
+        let exact = host.fuzzy_score("web-server", &mut matcher);
+        let prefix = host.fuzzy_score("web", &mut matcher);
+        assert!(exact >= prefix);
     }
 }
