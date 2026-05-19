@@ -6,6 +6,7 @@ use ratatui::widgets::{Cell, Row, Table, TableState};
 
 use crate::app::App;
 use crate::config::model::Host;
+use crate::probe::ProbeState;
 use crate::ui::layout::{host_table_constraints, ColumnVisibility};
 
 /// Build the host table widget + selection state for the current terminal
@@ -13,13 +14,26 @@ use crate::ui::layout::{host_table_constraints, ColumnVisibility};
 pub fn create_host_table<'a>(app: &'a App, width: u16) -> (Table<'a>, TableState) {
     let visibility = ColumnVisibility::for_width(width);
     let sshs_conf = crate::storage::sshs_conf_path();
+    let fallback_user = std::env::var("USER").unwrap_or_else(|_| "?".to_string());
 
     let rows: Vec<Row<'a>> = app
         .filtered
         .iter()
         .map(|&idx| {
             let host = &app.hosts[idx];
-            host_row(host, app, sshs_conf.as_deref(), &visibility)
+            let probe = app
+                .probe_states
+                .get(idx)
+                .copied()
+                .unwrap_or(ProbeState::Unknown);
+            host_row(
+                host,
+                app,
+                sshs_conf.as_deref(),
+                &visibility,
+                probe,
+                &fallback_user,
+            )
         })
         .collect();
 
@@ -54,14 +68,15 @@ fn host_row<'a>(
     app: &App,
     sshs_conf: Option<&Path>,
     visibility: &ColumnVisibility,
+    probe: ProbeState,
+    fallback_user: &str,
 ) -> Row<'a> {
     let mut cells: Vec<Cell<'a>> = Vec::new();
 
     cells.push(alias_cell(host));
 
     if visibility.show_account {
-        let account = host.user.as_deref().unwrap_or("");
-        cells.push(Cell::from(account.to_string()));
+        cells.push(account_cell(host, fallback_user));
     }
     if visibility.show_host {
         let hostname = host.hostname.as_deref().unwrap_or("-");
@@ -72,7 +87,7 @@ fn host_row<'a>(
         cells.push(Cell::from(port_str));
     }
 
-    cells.push(status_cell(host, app, sshs_conf));
+    cells.push(status_cell(host, app, sshs_conf, probe));
 
     Row::new(cells)
 }
@@ -89,11 +104,32 @@ fn alias_cell(host: &Host) -> Cell<'_> {
     }
 }
 
+/// Account cell: shows `host.user` when present; otherwise falls back to
+/// `$USER` rendered dim, mirroring ssh's default behaviour (an absent `User`
+/// directive means "log in as the current OS user").
+fn account_cell(host: &Host, fallback_user: &str) -> Cell<'static> {
+    match host.user.as_deref() {
+        Some(u) if !u.is_empty() => Cell::from(u.to_string()),
+        _ => Cell::from(fallback_user.to_string())
+            .style(Style::default().add_modifier(Modifier::DIM)),
+    }
+}
+
 /// Status cell encoded as 2-character `<probe><marker>`:
-/// - probe glyph (T11 wiring): space placeholder until ProbePool is wired in
+/// - probe glyph: ● Open / ○ Failed / ◌ InFlight / ' ' Unknown
 /// - marker priority: ★ (last_connected) > · (external source) > space
-fn status_cell(host: &Host, app: &App, sshs_conf: Option<&Path>) -> Cell<'static> {
-    let probe_glyph = ' ';
+fn status_cell(
+    host: &Host,
+    app: &App,
+    sshs_conf: Option<&Path>,
+    probe: ProbeState,
+) -> Cell<'static> {
+    let (probe_glyph, probe_color) = match probe {
+        ProbeState::Open => ('●', Some(Color::Green)),
+        ProbeState::Failed => ('○', Some(Color::Red)),
+        ProbeState::InFlight => ('◌', Some(Color::Yellow)),
+        ProbeState::Unknown => (' ', None),
+    };
 
     let marker = if app.last_connected.as_deref() == Some(host.alias.as_str()) {
         '★'
@@ -106,13 +142,17 @@ fn status_cell(host: &Host, app: &App, sshs_conf: Option<&Path>) -> Cell<'static
         ' '
     };
 
-    let text = format!("{probe_glyph}{marker}");
-    let style = match marker {
+    let probe_span = match probe_color {
+        Some(c) => Span::styled(probe_glyph.to_string(), Style::default().fg(c)),
+        None => Span::raw(probe_glyph.to_string()),
+    };
+    let marker_style = match marker {
         '★' => Style::default().fg(Color::Yellow),
         '·' => Style::default().add_modifier(Modifier::DIM),
         _ => Style::default(),
     };
-    Cell::from(text).style(style)
+    let marker_span = Span::styled(marker.to_string(), marker_style);
+    Cell::from(Line::from(vec![probe_span, marker_span]))
 }
 
 /// Title-bar text shown in the outer block (e.g., " sshs (12) ").
@@ -132,7 +172,8 @@ pub fn status_line(filter_mode: bool, filter_query: &str) -> Line<'static> {
         ))
     } else {
         Line::from(Span::styled(
-            " j/k nav  / filter  Enter ssh  r reconnect  a add  d del  m modify  t tags  e edit  q quit".to_string(),
+            " j/k nav  / filter  Enter ssh  r reconnect  a/d/m/t  e edit  ? help  q quit"
+                .to_string(),
             Style::default().add_modifier(Modifier::DIM),
         ))
     }
@@ -159,17 +200,33 @@ mod tests {
     #[test]
     fn test_alias_cell_no_tags_plain() {
         let h = host_in("/a", "alpha", vec![]);
-        let cell = alias_cell(&h);
-        // Cell is opaque; we re-create the expected and compare via formatting.
-        // At minimum exercise the path with no panic.
-        let _ = cell;
+        let _ = alias_cell(&h);
     }
 
     #[test]
     fn test_alias_cell_with_tags_renders_prefix() {
         let h = host_in("/a", "alpha", vec!["t1", "t2"]);
-        let cell = alias_cell(&h);
-        let _ = cell; // smoke
+        let _ = alias_cell(&h);
+    }
+
+    #[test]
+    fn test_account_cell_uses_user_when_present() {
+        let h = host_in("/a", "alpha", vec![]);
+        let _ = account_cell(&h, "root");
+    }
+
+    #[test]
+    fn test_account_cell_falls_back_to_env_user_when_missing() {
+        let mut h = host_in("/a", "alpha", vec![]);
+        h.user = None;
+        let _ = account_cell(&h, "root");
+    }
+
+    #[test]
+    fn test_account_cell_falls_back_when_user_empty() {
+        let mut h = host_in("/a", "alpha", vec![]);
+        h.user = Some(String::new());
+        let _ = account_cell(&h, "root");
     }
 
     #[test]
@@ -178,36 +235,21 @@ mod tests {
         let mut app = App::new(vec![h.clone()]);
         app.last_connected = Some("alpha".to_string());
         let sshs_conf = PathBuf::from("/managed/sshs.conf");
-        let cell = status_cell(&h, &app, Some(sshs_conf.as_path()));
-        // smoke: just ensure it builds without panic
-        let _ = cell;
+        let _ = status_cell(&h, &app, Some(sshs_conf.as_path()), ProbeState::Unknown);
     }
 
     #[test]
-    fn test_status_marker_dot_for_external_source() {
-        let h = host_in("/etc/ssh/config", "alpha", vec![]);
+    fn test_status_glyph_open() {
+        let h = host_in("/a", "alpha", vec![]);
         let app = App::new(vec![h.clone()]);
-        let sshs_conf = PathBuf::from("/home/u/.ssh/config.d/sshs.conf");
-        let cell = status_cell(&h, &app, Some(sshs_conf.as_path()));
-        let _ = cell;
-    }
-
-    #[test]
-    fn test_status_marker_blank_when_internal_and_not_last() {
-        let conf = "/home/u/.ssh/config.d/sshs.conf";
-        let h = host_in(conf, "alpha", vec![]);
-        let app = App::new(vec![h.clone()]);
-        let sshs_conf = PathBuf::from(conf);
-        let cell = status_cell(&h, &app, Some(sshs_conf.as_path()));
-        let _ = cell;
+        let _ = status_cell(&h, &app, None, ProbeState::Open);
     }
 
     #[test]
     fn test_header_includes_status_always() {
-        for w in [20u16, 35, 50, 80, 120] {
+        for w in [20u16, 25, 35, 50, 80, 120] {
             let v = ColumnVisibility::for_width(w);
-            let row = header_row(&v);
-            let _ = row; // smoke: builds without panic
+            let _ = header_row(&v);
         }
     }
 

@@ -10,10 +10,17 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use crate::app::App;
-use crate::ui::layout::{host_panel_layout, MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH};
+use crate::ui::layout::{
+    centered_rect, host_panel_layout, MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH,
+};
 
-/// Renders the entire TUI. Layout: full-screen, single-cell border block,
-/// 5-column host table (columns hide on narrow widths), bottom status row.
+/// Centered panel size as a percentage of the full terminal area.
+const PANEL_WIDTH_PCT: u16 = 70;
+const PANEL_HEIGHT_PCT: u16 = 80;
+
+/// Renders the entire TUI. Layout: a centered panel inside a 1-cell border
+/// block, 5-column host table (columns hide on narrow widths), bottom status
+/// row. When the terminal is below the minimum size, prints a notice.
 pub fn render(f: &mut Frame, app: &App) {
     let size = f.area();
 
@@ -27,11 +34,13 @@ pub fn render(f: &mut Frame, app: &App) {
         return;
     }
 
+    let panel = centered_rect(size, PANEL_WIDTH_PCT, PANEL_HEIGHT_PCT);
+
     let outer = Block::default()
         .borders(Borders::ALL)
         .title(list::title_line(app.host_count(), app.total_host_count()));
-    let inner = outer.inner(size);
-    f.render_widget(outer, size);
+    let inner = outer.inner(panel);
+    f.render_widget(outer, panel);
 
     let (table_area, status_area) = host_panel_layout(inner);
 

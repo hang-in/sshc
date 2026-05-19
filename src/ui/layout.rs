@@ -6,9 +6,31 @@ pub const MIN_TERMINAL_WIDTH: u16 = 60;
 /// Minimum height below which we render a "terminal too small" message.
 pub const MIN_TERMINAL_HEIGHT: u16 = 10;
 
-/// Decides which optional columns are shown for the current terminal width.
+/// Calculates a centered rect within the given area.
+pub fn centered_rect(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(area);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
+}
+
+/// Decides which optional columns are shown for the current inner width.
 /// Status and Alias are always visible. Account is dropped first, then Port,
-/// then Host (BRIEF_V3 §5 Q6 priority).
+/// then Host. Thresholds are tuned for the centered panel; even compact
+/// widths keep Account visible because the panel itself is narrow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ColumnVisibility {
     pub show_account: bool,
@@ -19,13 +41,10 @@ pub struct ColumnVisibility {
 impl ColumnVisibility {
     /// `width` is the inner width available for the table (after border).
     pub fn for_width(width: u16) -> Self {
-        // Thresholds account for the Status (2) + Alias (≥12) baseline.
-        // Adding Account (12) brings the baseline to roughly 80; below 80 we
-        // hide Account first, then Port, then Host.
         Self {
-            show_account: width >= 60,
-            show_port: width >= 38,
-            show_host: width >= 30,
+            show_account: width >= 40,
+            show_port: width >= 30,
+            show_host: width >= 22,
         }
     }
 }
@@ -34,15 +53,15 @@ impl ColumnVisibility {
 /// Order: Alias, [Account], [Host], [Port], Status.
 pub fn host_table_constraints(visibility: &ColumnVisibility) -> Vec<Constraint> {
     let mut cols = Vec::with_capacity(5);
-    cols.push(Constraint::Min(12)); // Alias
+    cols.push(Constraint::Min(10)); // Alias (grows)
     if visibility.show_account {
-        cols.push(Constraint::Length(12)); // Account
+        cols.push(Constraint::Length(10)); // Account (fixed)
     }
     if visibility.show_host {
-        cols.push(Constraint::Min(15)); // Host
+        cols.push(Constraint::Min(12)); // Host (grows)
     }
     if visibility.show_port {
-        cols.push(Constraint::Length(6)); // Port
+        cols.push(Constraint::Length(5)); // Port (fixed)
     }
     cols.push(Constraint::Length(2)); // Status
     cols
@@ -62,6 +81,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_centered_rect_calculation() {
+        let area = Rect::new(0, 0, 100, 50);
+        let centered = centered_rect(area, 50, 70);
+        assert_eq!(centered.width, 50);
+        assert_eq!(centered.height, 35);
+        assert_eq!(centered.x, 25);
+    }
+
+    #[test]
     fn test_column_visibility_full_width() {
         let v = ColumnVisibility::for_width(120);
         assert!(v.show_account);
@@ -70,24 +98,31 @@ mod tests {
     }
 
     #[test]
-    fn test_column_visibility_hides_account_first() {
+    fn test_column_visibility_keeps_account_in_centered_panel() {
+        // A centered panel inner width is roughly 60-70; Account must stay.
         let v = ColumnVisibility::for_width(50);
-        assert!(!v.show_account);
+        assert!(v.show_account);
         assert!(v.show_host);
         assert!(v.show_port);
     }
 
     #[test]
-    fn test_column_visibility_hides_port_next() {
+    fn test_column_visibility_hides_account_below_40() {
         let v = ColumnVisibility::for_width(35);
+        assert!(!v.show_account);
+    }
+
+    #[test]
+    fn test_column_visibility_hides_port_below_30() {
+        let v = ColumnVisibility::for_width(25);
         assert!(!v.show_account);
         assert!(!v.show_port);
         assert!(v.show_host);
     }
 
     #[test]
-    fn test_column_visibility_hides_host_last() {
-        let v = ColumnVisibility::for_width(28);
+    fn test_column_visibility_hides_host_below_22() {
+        let v = ColumnVisibility::for_width(20);
         assert!(!v.show_account);
         assert!(!v.show_port);
         assert!(!v.show_host);
@@ -98,7 +133,7 @@ mod tests {
         let full = ColumnVisibility::for_width(120);
         assert_eq!(host_table_constraints(&full).len(), 5);
 
-        let no_account = ColumnVisibility::for_width(50);
+        let no_account = ColumnVisibility::for_width(35);
         assert_eq!(host_table_constraints(&no_account).len(), 4);
 
         let only_status_alias = ColumnVisibility::for_width(20);
