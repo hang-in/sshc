@@ -48,7 +48,14 @@ mod tests {
 
     #[test]
     fn test_editor_command_construction() {
-        // Test with vim-like editor
+        // Pin EDITOR to a vim-like value so the `+LINE` assertion holds
+        // regardless of host. On a Windows runner with EDITOR unset the
+        // default resolves to `notepad.exe`, which doesn't accept
+        // `+42`, and the assert would fail for environmental reasons
+        // rather than a real regression.
+        let original = env::var("EDITOR").ok();
+        env::set_var("EDITOR", "vim");
+
         let file = PathBuf::from("/test/config");
         let cmd = build_editor_command(&file, 42);
 
@@ -59,6 +66,13 @@ mod tests {
             .collect();
         assert!(args.contains(&"+42".to_string()));
         assert!(args.iter().any(|a| a.contains("config")));
+
+        // Restore EDITOR
+        if let Some(val) = original {
+            env::set_var("EDITOR", val);
+        } else {
+            env::remove_var("EDITOR");
+        }
     }
 
     #[test]

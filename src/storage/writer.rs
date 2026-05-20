@@ -133,11 +133,204 @@ fn set_owner_only_perms(path: &Path) -> Result<(), StorageError> {
     fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(StorageError::WriteFailed)
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn set_owner_only_perms(path: &Path) -> Result<(), StorageError> {
+    // Replicate Unix `chmod 0600` semantics on Windows by writing an
+    // explicit DACL with three ACEs (current owner / SYSTEM / Local
+    // Administrators) and disabling inheritance. Windows OpenSSH
+    // rejects `~/.ssh/config.d/sshc.conf` with "Bad owner or
+    // permissions on …" the moment a broader trustee (Authenticated
+    // Users, BUILTIN\Users, Everyone, …) shows up in the DACL —
+    // typically via the parent directory's inherited ACEs — so we
+    // build a fresh DACL from scratch and mark it `PROTECTED` to keep
+    // future parent-directory ACEs from creeping in.
+    //
+    // The three ACEs we keep:
+    //   * the file's existing owner (read+write, full control)
+    //   * NT AUTHORITY\SYSTEM
+    //   * BUILTIN\Administrators
+    //
+    // Anything else is removed. v0.8.2 fixed the *save* path; v0.8.3
+    // makes the saved file actually usable by `ssh -G` / `ssh` on
+    // Windows. Unix behavior is unchanged.
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr;
+    use windows_sys::Win32::Foundation::{LocalFree, ERROR_SUCCESS, HLOCAL};
+    use windows_sys::Win32::Security::Authorization::{
+        GetNamedSecurityInfoW, SetEntriesInAclW, SetNamedSecurityInfoW, EXPLICIT_ACCESS_W,
+        GRANT_ACCESS, NO_INHERITANCE, SE_FILE_OBJECT, TRUSTEE_IS_SID, TRUSTEE_IS_USER, TRUSTEE_W,
+    };
+    use windows_sys::Win32::Security::{
+        AllocateAndInitializeSid, FreeSid, ACL, DACL_SECURITY_INFORMATION, DOMAIN_ALIAS_RID_ADMINS,
+        OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
+        PSID, SECURITY_BUILTIN_DOMAIN_RID, SECURITY_LOCAL_SYSTEM_RID, SECURITY_NT_AUTHORITY,
+        SID_IDENTIFIER_AUTHORITY,
+    };
+
+    // GENERIC_ALL — defined under Win32_Storage_FileSystem in some
+    // releases of windows-sys; pin the value locally so we don't
+    // depend on which sub-feature happens to re-export it.
+    const GENERIC_ALL: u32 = 0x1000_0000;
+
+    let wide: Vec<u16> = OsStr::new(path)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
+    // -- Step 1: read the current owner SID off the file. We don't
+    //    change the owner; only the DACL. The returned security
+    //    descriptor must be freed with LocalFree.
+    let mut owner_sid: PSID = ptr::null_mut();
+    let mut sd: PSECURITY_DESCRIPTOR = ptr::null_mut();
+    let rc = unsafe {
+        GetNamedSecurityInfoW(
+            wide.as_ptr(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            &mut owner_sid,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+            &mut sd,
+        )
+    };
+    if rc != ERROR_SUCCESS {
+        return Err(StorageError::WriteFailed(
+            std::io::Error::from_raw_os_error(rc as i32),
+        ));
+    }
+
+    // -- Step 2: build the two well-known SIDs (SYSTEM, Local
+    //    Administrators). Both come back as caller-owned blocks that
+    //    must be released with FreeSid.
+    let mut nt_authority: SID_IDENTIFIER_AUTHORITY = SID_IDENTIFIER_AUTHORITY {
+        Value: SECURITY_NT_AUTHORITY,
+    };
+    let mut system_sid: PSID = ptr::null_mut();
+    let mut admins_sid: PSID = ptr::null_mut();
+
+    let ok_system = unsafe {
+        AllocateAndInitializeSid(
+            &mut nt_authority,
+            1,
+            SECURITY_LOCAL_SYSTEM_RID as u32,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &mut system_sid,
+        )
+    };
+    let ok_admins = unsafe {
+        AllocateAndInitializeSid(
+            &mut nt_authority,
+            2,
+            2, // SECURITY_BUILTIN_DOMAIN_RID
+            DOMAIN_ALIAS_RID_ADMINS as u32,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &mut admins_sid,
+        )
+    };
+    // SECURITY_BUILTIN_DOMAIN_RID is a const in windows-sys; reference it
+    // so a future rename surfaces as a compile break instead of a silent
+    // ACL fallback.
+    let _ = SECURITY_BUILTIN_DOMAIN_RID;
+    if ok_system == 0 || ok_admins == 0 {
+        let err = std::io::Error::last_os_error();
+        unsafe {
+            if !system_sid.is_null() {
+                FreeSid(system_sid);
+            }
+            if !admins_sid.is_null() {
+                FreeSid(admins_sid);
+            }
+            LocalFree(sd as HLOCAL);
+        }
+        return Err(StorageError::WriteFailed(err));
+    }
+
+    // -- Step 3: assemble three EXPLICIT_ACCESS_W entries. Each grants
+    //    GENERIC_ALL with no inheritance so child files don't pick up
+    //    anything from us either.
+    let make_ea = |sid: PSID| EXPLICIT_ACCESS_W {
+        grfAccessPermissions: GENERIC_ALL,
+        grfAccessMode: GRANT_ACCESS,
+        grfInheritance: NO_INHERITANCE,
+        Trustee: TRUSTEE_W {
+            pMultipleTrustee: ptr::null_mut(),
+            MultipleTrusteeOperation: 0,
+            TrusteeForm: TRUSTEE_IS_SID,
+            TrusteeType: TRUSTEE_IS_USER,
+            ptstrName: sid as *mut u16,
+        },
+    };
+    let entries = [make_ea(owner_sid), make_ea(system_sid), make_ea(admins_sid)];
+
+    let mut new_acl: *mut ACL = ptr::null_mut();
+    let rc = unsafe {
+        SetEntriesInAclW(
+            entries.len() as u32,
+            entries.as_ptr(),
+            ptr::null_mut(),
+            &mut new_acl,
+        )
+    };
+    if rc != ERROR_SUCCESS {
+        unsafe {
+            FreeSid(system_sid);
+            FreeSid(admins_sid);
+            LocalFree(sd as HLOCAL);
+        }
+        return Err(StorageError::WriteFailed(
+            std::io::Error::from_raw_os_error(rc as i32),
+        ));
+    }
+
+    // -- Step 4: install the DACL on the file and mark it PROTECTED so
+    //    parent directory inheritance can't add Authenticated Users /
+    //    Everyone back in.
+    let rc = unsafe {
+        SetNamedSecurityInfoW(
+            wide.as_ptr() as *mut u16,
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            new_acl,
+            ptr::null_mut(),
+        )
+    };
+
+    unsafe {
+        if !new_acl.is_null() {
+            LocalFree(new_acl as HLOCAL);
+        }
+        FreeSid(system_sid);
+        FreeSid(admins_sid);
+        LocalFree(sd as HLOCAL);
+    }
+
+    if rc != ERROR_SUCCESS {
+        return Err(StorageError::WriteFailed(
+            std::io::Error::from_raw_os_error(rc as i32),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(any(unix, windows)))]
 fn set_owner_only_perms(_path: &Path) -> Result<(), StorageError> {
-    // Windows: Unix 0600 has no direct equivalent. ACL enforcement is
-    // out of scope for v0.7 — we still write the file, just without
-    // permission tightening. Defaults inherit from the parent.
+    // Other targets (wasi, etc.) keep the v0.7-era no-op. sshc isn't
+    // supported there but we don't want this file to refuse to compile.
     Ok(())
 }
 

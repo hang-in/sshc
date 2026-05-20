@@ -8,6 +8,48 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.8.3] — 2026-05-21
+
+Windows usability hotfix on top of v0.8.2. No behavior change on
+macOS / Linux.
+
+### Fixed
+
+- **`sshc.conf` is now usable by `ssh` on Windows.** v0.8.2 made the
+  *save* succeed (the `a` form actually wrote bytes to disk), but
+  Windows OpenSSH then refused to read the result with
+  `Bad owner or permissions on C:\Users\<u>\.ssh\config.d\sshc.conf`.
+  The cause: `set_owner_only_perms` was a `#[cfg(not(unix))]` no-op,
+  so newly-written `sshc.conf` inherited the parent directory's DACL
+  — typically `BUILTIN\Users` or `Authenticated Users` with read
+  access — and `ssh.exe` rejects any trustee broader than the owner.
+
+  v0.8.3 replaces the no-op with a real DACL writer that mirrors
+  Unix `chmod 0600` intent: three explicit ACEs (current owner +
+  `NT AUTHORITY\SYSTEM` + `BUILTIN\Administrators`), no inheritance,
+  `PROTECTED_DACL_SECURITY_INFORMATION` so parent ACEs can't drift
+  back in. Implementation goes through `windows-sys`
+  `GetNamedSecurityInfoW` → `SetEntriesInAclW` →
+  `SetNamedSecurityInfoW`. Owner SID is not modified.
+
+  Verify on Windows after upgrading: `sshc -m` → `a` → fill, Enter,
+  then `ssh -G <alias>` no longer prints the "Bad owner" error and
+  `icacls $HOME\.ssh\config.d\sshc.conf` shows only SYSTEM /
+  Administrators / your user account.
+
+### Internal
+
+- `test_editor_command_construction` now pins `EDITOR=vim` for the
+  duration of the test and restores the original value on exit.
+  v0.8-era runs on Windows with `EDITOR` unset fell through to
+  `notepad.exe`, which doesn't accept the `+42` arg the test
+  asserts. The assertion itself wasn't catching a real regression
+  on those hosts — it was tripping on the environment default.
+
+- `Cargo.toml` `windows-sys` features list adds
+  `Win32_Security_Authorization` (transitively required by
+  `SetEntriesInAclW` / `SetNamedSecurityInfoW`).
+
 ## [0.8.2] — 2026-05-21
 
 Windows hotfix over v0.8.1 — actually fixes the silent `a` (add host)
