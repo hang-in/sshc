@@ -6,12 +6,15 @@ pub mod status_bar;
 
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
-use crate::app::App;
+use crate::app::{App, AppMode};
 use crate::ui::layout::{
     host_panel_layout, ColumnVisibility, MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH,
+};
+use crate::ui::modal::{
+    centered_rect, render_confirmation_body, render_info_body, render_modal_chrome, ModalKind,
 };
 
 /// Minimum and maximum sizes for the dynamically-sized centered panel.
@@ -100,4 +103,32 @@ pub fn render(f: &mut Frame, app: &App) {
     };
     let status_widget = Paragraph::new(status_text).style(status_style);
     f.render_widget(status_widget, status_area);
+
+    // Overlay the active modal on top of the host panel. ratatui doesn't
+    // auto-clear the cells under a widget, so render `Clear` first.
+    if let AppMode::Modal(kind) = &app.mode {
+        render_modal_overlay(f, panel, kind);
+    }
+}
+
+fn render_modal_overlay(f: &mut Frame, panel: Rect, kind: &ModalKind) {
+    match kind {
+        ModalKind::Confirmation { prompt, .. } => {
+            let area = centered_rect(panel, 70, 40);
+            f.render_widget(Clear, area);
+            render_modal_chrome(area, f, " Confirm ");
+            render_confirmation_body(area, f, prompt);
+        }
+        ModalKind::Info { message, .. } => {
+            let area = centered_rect(panel, 70, 50);
+            f.render_widget(Clear, area);
+            render_modal_chrome(area, f, " Help ");
+            render_info_body(area, f, message);
+        }
+        ModalKind::Form(form) => {
+            let area = centered_rect(panel, 70, 70);
+            f.render_widget(Clear, area);
+            form.render(area, f);
+        }
+    }
 }

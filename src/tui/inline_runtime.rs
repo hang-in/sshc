@@ -5,16 +5,20 @@
 //! never re-enters the UI after a successful ssh round-trip — process
 //! exits immediately, returning the `SshResult` so the caller can pick
 //! an exit code.
+//!
+//! Layout: no border, left-aligned, width matches the data (clamped to
+//! the viewport width). Leaves the rest of the shell context visible to
+//! the right of the table.
 
 use std::io::Stdout;
 use std::time::Duration;
 
 use crossterm::event::{poll, read, Event, KeyEventKind};
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Layout};
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState};
+use ratatui::widgets::{Cell, Paragraph, Row, Table, TableState};
 use ratatui::{Frame, Terminal};
 
 use crate::error::AppError;
@@ -22,7 +26,6 @@ use crate::exec::ssh::{ssh_run, SshResult};
 use crate::inline_app::InlineApp;
 use crate::tui::TerminalGuard;
 
-/// Drive the inline-mode TUI. Returns when `app` has set a pending action.
 pub fn run_event_loop_inline(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut InlineApp,
@@ -44,17 +47,12 @@ pub fn run_event_loop_inline(
     }
 }
 
-/// Suspend the inline viewport, spawn ssh, and return the result.
-/// Inline mode does NOT resume the UI afterwards — the caller exits the
-/// process based on the returned `SshResult`.
 pub fn handle_connect_inline(
     guard: &mut TerminalGuard,
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut InlineApp,
     alias: &str,
 ) -> Result<SshResult, AppError> {
-    // Clear the inline viewport so the shell context isn't polluted with
-    // a frozen frame. Empty draw collapses the area before suspend.
     terminal.clear()?;
     terminal.draw(|_| {})?;
 
@@ -65,33 +63,76 @@ pub fn handle_connect_inline(
     Ok(result)
 }
 
+/// Per-column max widths used to size the table to the data.
+struct InlineWidths {
+    alias: u16,
+    account: u16,
+    host: u16,
+    port: u16,
+}
+
+fn compute_widths(app: &InlineApp, fallback_user: &str) -> InlineWidths {
+    // Header text gives the floor.
+    let mut w = InlineWidths {
+        alias: "Alias".len() as u16,
+        account: "Account".len() as u16,
+        host: "Host".len() as u16,
+        port: "Port".len() as u16,
+    };
+    for &idx in &app.filtered {
+        let host = &app.hosts[idx];
+        w.alias = w.alias.max(host.alias.chars().count() as u16);
+        let account_len = match host.user.as_deref() {
+            Some(u) if !u.is_empty() => u.chars().count() as u16,
+            _ => fallback_user.chars().count() as u16,
+        };
+        w.account = w.account.max(account_len);
+        let host_len = host
+            .hostname
+            .as_deref()
+            .map(|s| s.chars().count() as u16)
+            .unwrap_or(1);
+        w.host = w.host.max(host_len);
+        let port_len = host.port.map(|p| p.to_string().len() as u16).unwrap_or(0);
+        w.port = w.port.max(port_len);
+    }
+    w
+}
+
 fn render_inline(f: &mut Frame, app: &InlineApp) {
-    let size = f.area();
+    let viewport = f.area();
 
-    let outer = Block::default()
-        .borders(Borders::ALL)
-        .title(format!(" sshc ({}) ", app.host_count()));
-    let inner = outer.inner(size);
-    f.render_widget(outer, size);
+    let fallback_user = std::env::var("USER").unwrap_or_else(|_| "?".to_string());
+    let w = compute_widths(app, &fallback_user);
 
-    let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).split(inner);
+    let pad: u16 = 2;
+    let status_w: u16 = 2;
+    let column_spacing: u16 = 1; // ratatui Table default
+                                 // 5 columns: Alias, Account, Host, Port, Status. 4 gaps between them.
+    let row_width = (w.alias + pad)
+        + (w.account + pad)
+        + (w.host + pad)
+        + (w.port + pad)
+        + status_w
+        + column_spacing * 4;
+    let render_width = row_width.min(viewport.width);
+    let area = Rect::new(viewport.x, viewport.y, render_width, viewport.height);
+
+    let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).split(area);
     let table_area = chunks[0];
     let status_area = chunks[1];
 
-    // Columns: Alias / Account / Host / Port / spacer / Status (★ only).
     let constraints = [
-        Constraint::Min(10),
-        Constraint::Length(10),
-        Constraint::Min(12),
-        Constraint::Length(5),
-        Constraint::Min(2),
-        Constraint::Length(2),
+        Constraint::Length(w.alias + pad),
+        Constraint::Length(w.account + pad),
+        Constraint::Length(w.host + pad),
+        Constraint::Length(w.port + pad),
+        Constraint::Length(status_w),
     ];
 
-    let header = Row::new(vec!["Alias", "Account", "Host", "Port", "", "St"])
+    let header = Row::new(vec!["Alias", "Account", "Host", "Port", "St"])
         .style(Style::default().add_modifier(Modifier::BOLD));
 
-    let fallback_user = std::env::var("USER").unwrap_or_else(|_| "?".to_string());
     let dim = Style::default().add_modifier(Modifier::DIM);
 
     let rows: Vec<Row> = app
@@ -99,14 +140,12 @@ fn render_inline(f: &mut Frame, app: &InlineApp) {
         .iter()
         .map(|&idx| {
             let host = &app.hosts[idx];
-
             let (account_text, account_style) = match host.user.as_deref() {
                 Some(u) if !u.is_empty() => (u.to_string(), Style::default()),
                 _ => (fallback_user.clone(), dim),
             };
             let hostname = host.hostname.as_deref().unwrap_or("-").to_string();
             let port = host.port.map(|p| p.to_string()).unwrap_or_default();
-
             let is_last = app.last_connected.as_deref() == Some(host.alias.as_str());
             let status_cell = if is_last {
                 Cell::from(Line::from(vec![
@@ -116,13 +155,11 @@ fn render_inline(f: &mut Frame, app: &InlineApp) {
             } else {
                 Cell::from("  ")
             };
-
             Row::new(vec![
                 Cell::from(host.alias.clone()),
                 Cell::from(account_text).style(account_style),
                 Cell::from(hostname),
                 Cell::from(port),
-                Cell::from(""),
                 status_cell,
             ])
         })
