@@ -129,7 +129,8 @@ impl App {
                 KeyCode::Char('/') => {
                     self.filter_mode = true;
                 }
-                KeyCode::Enter => {
+                KeyCode::Enter => self.activate_selected(),
+                KeyCode::Char('s') => {
                     if !self.filtered.is_empty() {
                         if let Some(alias) = self.selected_host().map(|h| h.alias.clone()) {
                             self.pending_action = Some(AppAction::Connect(alias));
@@ -145,7 +146,6 @@ impl App {
                     self.try_reconnect();
                 }
                 KeyCode::Char('a') => self.open_add_form(),
-                KeyCode::Char('m') => self.open_modify_form(),
                 KeyCode::Char('d') => self.open_delete_confirm(),
                 KeyCode::Char('t') => self.open_tag_form(),
                 KeyCode::Char('?') => self.open_help_modal(),
@@ -310,13 +310,32 @@ impl App {
     }
 
     fn open_help_modal(&mut self) {
-        let msg = "j/k nav  / filter  Enter ssh  r reconnect\n\
-                   a add  d delete  m modify  t tags  e edit  ? help  q quit"
+        let msg = "j/k nav  / filter  Enter open  s ssh  r reconnect\n\
+                   a add  d delete  t tags  e edit  ? help  q quit"
             .to_string();
         self.mode = AppMode::Modal(ModalKind::Info {
             message: msg,
             dismiss: ModalAction::None,
         });
+    }
+
+    /// v0.4 Enter behaviour: open the edit form for sshs.conf-managed
+    /// hosts (manage them); open `$EDITOR` at the host's line for
+    /// external-source hosts (sshs.conf-external — cannot be edited via
+    /// the form). For empty lists, no-op.
+    fn activate_selected(&mut self) {
+        if self.filtered.is_empty() {
+            return;
+        }
+        let host_is_managed = self
+            .selected_host()
+            .map(|h| h.source_file == Self::sshs_conf_path_or_blank())
+            .unwrap_or(false);
+        if host_is_managed {
+            self.open_modify_form();
+        } else {
+            self.pending_action = Some(AppAction::EditConfig);
+        }
     }
 
     fn apply_form(&mut self, ctx: FormContext, payload: FormPayload) {
@@ -720,11 +739,42 @@ mod tests {
     }
 
     #[test]
-    fn test_app_enter_connect() {
+    fn test_app_s_connects() {
+        let hosts = vec![make_host("a")];
+        let mut app = App::new(hosts);
+        app.handle_key(KeyEvent::from(KeyCode::Char('s')));
+        assert_eq!(app.take_action(), Some(AppAction::Connect("a".to_string())));
+    }
+
+    #[test]
+    fn test_app_enter_on_external_host_opens_editor() {
+        // make_host() seeds source_file = "/test/config" (not sshs.conf).
         let hosts = vec![make_host("a")];
         let mut app = App::new(hosts);
         app.handle_key(KeyEvent::from(KeyCode::Enter));
-        assert_eq!(app.take_action(), Some(AppAction::Connect("a".to_string())));
+        assert_eq!(app.take_action(), Some(AppAction::EditConfig));
+    }
+
+    #[test]
+    fn test_app_enter_on_managed_host_opens_form() {
+        let mut h = make_host("managed");
+        h.source_file = App::sshs_conf_path_or_blank();
+        let mut app = App::new(vec![h]);
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+        // Enter should open the modify form (Modal::Form). No pending action.
+        assert!(matches!(app.mode, AppMode::Modal(ModalKind::Form(_))));
+        assert!(app.take_action().is_none());
+    }
+
+    #[test]
+    fn test_app_m_key_unbound() {
+        // 'm' is no longer a manage-mode shortcut (merged into Enter).
+        let mut h = make_host("managed");
+        h.source_file = App::sshs_conf_path_or_blank();
+        let mut app = App::new(vec![h]);
+        app.handle_key(KeyEvent::from(KeyCode::Char('m')));
+        assert!(matches!(app.mode, AppMode::List));
+        assert!(app.take_action().is_none());
     }
 
     #[test]
