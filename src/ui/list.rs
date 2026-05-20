@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
+use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Cell, Row, Table, TableState};
 
 use crate::app::App;
@@ -204,19 +204,30 @@ pub fn title_line(host_count: usize, _total: usize) -> Line<'static> {
     ))
 }
 
-/// Bottom status row: filter input or default help.
-pub fn status_line(filter_mode: bool, filter_query: &str) -> Line<'static> {
+/// Bottom status text: filter input on top of an empty second row when in
+/// filter mode; otherwise the keybinding help split across two lines so it
+/// does not clip on narrow panels.
+pub fn status_line(filter_mode: bool, filter_query: &str) -> Text<'static> {
     if filter_mode {
-        Line::from(Span::styled(
-            format!(" /{}", filter_query),
-            Style::default(),
-        ))
+        Text::from(vec![
+            Line::from(Span::styled(
+                format!(" /{}", filter_query),
+                Style::default(),
+            )),
+            Line::from(""),
+        ])
     } else {
-        Line::from(Span::styled(
-            " j/k nav  / filter  Enter ssh  r reconnect  a/d/m/t  e edit  ? help  q quit"
-                .to_string(),
-            Style::default().add_modifier(Modifier::DIM),
-        ))
+        let dim = Style::default().add_modifier(Modifier::DIM);
+        Text::from(vec![
+            Line::from(Span::styled(
+                " j/k nav  / filter  Enter ssh  r reconnect".to_string(),
+                dim,
+            )),
+            Line::from(Span::styled(
+                " a add  d del  m modify  t tags  e edit  ? help  q quit".to_string(),
+                dim,
+            )),
+        ])
     }
 }
 
@@ -304,8 +315,31 @@ mod tests {
 
     #[test]
     fn test_status_line_filter_mode() {
-        let l = status_line(true, "foo");
-        let s: String = l.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(s.contains("/foo"));
+        let text = status_line(true, "foo");
+        let first_line: String = text.lines[0]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(first_line.contains("/foo"));
+        assert_eq!(text.lines.len(), 2);
+    }
+
+    #[test]
+    fn test_status_line_default_two_rows() {
+        let text = status_line(false, "");
+        assert_eq!(text.lines.len(), 2);
+        let row1: String = text.lines[0]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        let row2: String = text.lines[1]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(row1.contains("j/k"));
+        assert!(row2.contains("? help"));
     }
 }

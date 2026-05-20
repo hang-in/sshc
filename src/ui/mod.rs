@@ -19,8 +19,8 @@ const MIN_PANEL_WIDTH: u16 = 50;
 const MIN_PANEL_HEIGHT: u16 = 10;
 const MAX_PANEL_WIDTH: u16 = 110;
 const MAX_PANEL_HEIGHT: u16 = 32;
-/// Bottom-status row + header row + 2 cells of border.
-const PANEL_CHROME_HEIGHT: u16 = 4;
+/// Bottom-status block (2 rows) + header row + 2 cells of border.
+const PANEL_CHROME_HEIGHT: u16 = 5;
 /// Border + 1 cell padding on each side.
 const PANEL_CHROME_WIDTH: u16 = 2;
 
@@ -82,9 +82,12 @@ pub fn render(f: &mut Frame, app: &App) {
     f.render_stateful_widget(table, table_area, &mut state);
 
     let visible_msg = app.status_message.as_ref().filter(|m| m.is_visible());
-    let (status_line, status_style) = if let Some(msg) = visible_msg {
+    let (status_text, status_style) = if let Some(msg) = visible_msg {
         (
-            ratatui::text::Line::from(msg.text().to_string()),
+            ratatui::text::Text::from(vec![
+                ratatui::text::Line::from(msg.text().to_string()),
+                ratatui::text::Line::from(""),
+            ]),
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
@@ -95,6 +98,6 @@ pub fn render(f: &mut Frame, app: &App) {
             Style::default().add_modifier(Modifier::DIM),
         )
     };
-    let status_widget = Paragraph::new(status_line).style(status_style);
+    let status_widget = Paragraph::new(status_text).style(status_style);
     f.render_widget(status_widget, status_area);
 }

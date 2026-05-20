@@ -143,11 +143,13 @@ impl ColumnWidths {
     }
 }
 
-/// Splits the inner area (inside the outer border) into table area + status row.
+/// Splits the inner area (inside the outer border) into table area + status
+/// rows. The status block reserves 2 lines so the keybinding help can wrap
+/// to a second row without clipping on narrow panels.
 pub fn host_panel_layout(area: Rect) -> (Rect, Rect) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .constraints([Constraint::Min(1), Constraint::Length(2)])
         .split(area);
     (rows[0], rows[1])
 }
@@ -236,7 +238,7 @@ mod tests {
     fn test_host_panel_layout_splits() {
         let area = Rect::new(0, 0, 80, 20);
         let (table, status) = host_panel_layout(area);
-        assert_eq!(status.height, 1);
+        assert_eq!(status.height, 2);
         assert!(table.height > 0);
     }
 }
