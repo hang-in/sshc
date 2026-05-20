@@ -77,11 +77,13 @@ sshc
 | `/` | 필터 모드 진입 (`@태그`는 태그 전용) |
 | Enter | 관리 호스트: 수정 폼 / 외부 호스트: `$EDITOR` 점프 |
 | s | ssh |
-| r | 마지막 호스트 재접속 |
 | a | 호스트 추가 |
 | d | 삭제 (확인 모달) |
 | t | 태그 편집 |
+| f | 즐겨찾기 / pin 토글 (★) |
+| v | `ssh -G <alias>` 검증 모달 |
 | e | 해당 호스트 줄에서 `$EDITOR` 열기 |
+| i | `~/.ssh/config`에 `Include` 라인 주입 |
 | ? | 도움말 모달 |
 | q, Esc | 종료 / 취소 |
 
@@ -101,7 +103,7 @@ brew install hang-in/tap/sshc
 ### git에서 cargo install
 
 ```sh
-cargo install --git https://github.com/hang-in/sshc --tag v0.5.1
+cargo install --git https://github.com/hang-in/sshc --tag v0.6.0
 ```
 
 ### 소스 빌드

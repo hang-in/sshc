@@ -80,11 +80,13 @@ connected hosts float to the top of the list, so the common case is
 | `/` | enter filter mode (`@tag` for tag-only) |
 | Enter | open edit form (managed host) / `$EDITOR` jump (external) |
 | s | ssh |
-| r | reconnect last |
 | a | add host |
 | d | delete (with confirm) |
 | t | edit tags |
+| f | toggle favorite / pin (★) |
+| v | `ssh -G <alias>` validation modal |
 | e | open `$EDITOR` at the host's line |
+| i | inject `Include` line into `~/.ssh/config` |
 | ? | help modal |
 | q, Esc | quit / cancel |
 
@@ -104,7 +106,7 @@ brew install hang-in/tap/sshc
 ### Cargo from git
 
 ```sh
-cargo install --git https://github.com/hang-in/sshc --tag v0.5.1
+cargo install --git https://github.com/hang-in/sshc --tag v0.6.0
 ```
 
 ### From source

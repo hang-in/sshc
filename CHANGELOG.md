@@ -8,6 +8,74 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.6.0] — 2026-05-20
+
+Picker depth + edit-safety pass. Two threads:
+
+### Added — every-day picker
+
+- **Favorites / pin (`f` in manage mode).** Toggles a host as
+  pinned. Pinned hosts float to the top of the picker regardless of
+  fuzzy score, in both inline and manage. Stored in `state.toml`
+  under a new `[memory] favorites` list (separate from tags).
+- **Recent-connection history.** `last_connected_alias` (single
+  `String`) bumps to `recent: Vec<RecentEntry>` (max 20, most-
+  recent first). Picker uses recency as the 2nd-tier sort key,
+  after favorites, before fuzzy score. Loading a pre-v0.6
+  `state.toml` migrates transparently: the legacy alias becomes
+  `recent[0]` with `ts = state.toml mtime`.
+- **Inline-mode one-line summary** under the host table:
+  `→ user@hostname:port` for the highlighted row.
+- **Manage-mode right-side preview panel** with HostName / User /
+  Port / Identity / Tags / Extra. Visible when terminal width ≥
+  100 cols; hidden gracefully on narrower terminals.
+- **★ glyphs.** Yellow ★ = favorite. Cyan ★ = last-connected. Both
+  shown in inline picker and manage status column.
+
+### Added — safe management
+
+- **`v` in manage mode runs `ssh -G <alias>`** and shows the parsed
+  effective config in an Info modal. Cached per session; cache is
+  cleared on any successful form submit / delete / tag edit. Falls
+  back to a status-bar warning if `ssh` is missing or exits
+  non-zero — never blocks the user.
+
+### Changed — inline picker is now modal
+
+Inline switched from "fzf-style: every char filters" to explicit
+modes:
+
+- Nav mode (default): `j/k/↑/↓` navigate, Enter `ssh`, `/` enter
+  search mode, `q` / Esc quit, Ctrl+C quit anywhere.
+- Search mode: printable chars append, Backspace pops, Esc exits
+  search (picker stays open), Enter ssh-launches the highlight.
+
+The previous fzf shortcut for "type to filter immediately" was
+trading away the `j/k` navigation key once any character had been
+typed, which surprised the user. Modal aligns inline with manage
+mode (both use `/`).
+
+### Removed
+
+- **`r` reconnect key (both inline and manage).** The R3 recency
+  sort already puts the last-connected host at row 0, so a single
+  `s` (manage) or Enter (inline) covers the reconnect case. The
+  dedicated key was redundant once history landed.
+
+### Internal
+
+- `src/ui/preview.rs` — new widget module.
+- `src/exec/ssh_config.rs` — `validate_alias` helper, with
+  `ValidationError { SshNotFound, NonZeroExit }`. Lives in
+  `src/exec/` so R-G1 (no `Command::new` in `src/app/*`) stays clean.
+- `App.validation_cache: HashMap<String, String>` for ssh -G.
+- `State::record_recent(alias)` central helper used by inline /
+  manage / direct connect paths.
+- `tests/fixtures/state_v05.toml` + migration tests guard the
+  schema bump against regressions.
+- 159 → 162 unit + integration tests.
+- R-G1..R-G9 still clean; main.rs at 8 non-comment lines.
+
 ## [0.5.1] — 2026-05-20
 
 Tiny patch — adds a read-only environment check. Nothing else changes.
