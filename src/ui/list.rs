@@ -165,11 +165,16 @@ fn account_cell(host: &Host, fallback_user: &str) -> Cell<'static> {
 
 /// Status cell encoded as 3-character `<probe> <marker>`. The two halves
 /// carry independent meanings — the probe glyph reflects TCP reachability
-/// (computed by the background worker pool), the marker tracks the last
-/// connection / external-source state. The mid space disambiguates them.
+/// (computed by the background worker pool), the marker tracks
+/// favorite / last-connection / external-source state. The mid space
+/// disambiguates them.
 ///
 /// - probe glyph: ● Open / ○ Failed / ◌ InFlight / ' ' Unknown
-/// - marker priority: ★ (last_connected) > · (external source) > space
+/// - marker priority (highest first):
+///   - ★ yellow = favorite (sticky pin, in state.memory.favorites)
+///   - ★ cyan   = last_connected (transient, recent[0])
+///   - ·        = external source (host not in sshc.conf)
+///   - ' '      = default
 fn status_cell(
     host: &Host,
     app: &App,
@@ -183,25 +188,22 @@ fn status_cell(
         ProbeState::Unknown => (' ', None),
     };
 
-    let marker = if app.last_connected.as_deref() == Some(host.alias.as_str()) {
-        '★'
+    let (marker, marker_style) = if app.is_favorite(&host.alias) {
+        ('★', Style::default().fg(Color::Yellow))
+    } else if app.last_connected.as_deref() == Some(host.alias.as_str()) {
+        ('★', Style::default().fg(Color::Cyan))
     } else if sshc_conf
         .map(|conf| host.source_file != conf)
         .unwrap_or(false)
     {
-        '·'
+        ('·', Style::default().add_modifier(Modifier::DIM))
     } else {
-        ' '
+        (' ', Style::default())
     };
 
     let probe_span = match probe_color {
         Some(c) => Span::styled(probe_glyph.to_string(), Style::default().fg(c)),
         None => Span::raw(probe_glyph.to_string()),
-    };
-    let marker_style = match marker {
-        '★' => Style::default().fg(Color::Yellow),
-        '·' => Style::default().add_modifier(Modifier::DIM),
-        _ => Style::default(),
     };
     let marker_span = Span::styled(marker.to_string(), marker_style);
     Cell::from(Line::from(vec![probe_span, Span::raw(" "), marker_span]))
