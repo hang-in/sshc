@@ -138,6 +138,10 @@ Windows 10 1809 이상 / Windows 11과 OpenSSH 클라이언트
 0600/0700 확인을 생략하고 상위 디렉터리 상속에 맡깁니다.
 ssh-agent 연동은 환경이 제공하는 것을 그대로 사용합니다 — Windows
 OpenSSH agent든 Pageant든 — `SSH_AUTH_SOCK`은 보지 않습니다.
+v0.8부터 `sshc --doctor`는 두 에이전트의 named pipe
+(`\\.\pipe\openssh-ssh-agent`, `\\.\pipe\pageant`)를 직접 확인하므로,
+`ssh-agent` 서비스가 멈춰 있으면 이전의 "not applicable" 안내가 아닌
+`WARN`이 표시됩니다.
 
 WSL2도 v0.6 때와 동일하게 그대로 동작합니다. Linux 빌드는 계속
 배포되고, WSL 배포판 안에서는 macOS/Linux와 똑같이 동작합니다.

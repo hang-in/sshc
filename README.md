@@ -136,8 +136,12 @@ Requires Windows 10 1809+ or Windows 11, plus the OpenSSH client
 permissions are not enforced — Windows ACLs use a different model
 than Unix mode bits, so sshc skips the 0600/0700 checks and leaves
 inheritance to the parent directory. SSH agent integration uses
-whatever your environment provides (Windows OpenSSH agent,
-Pageant); `SSH_AUTH_SOCK` is not consulted.
+whatever your environment provides (Windows OpenSSH agent or
+Pageant); `SSH_AUTH_SOCK` is not consulted. As of v0.8 `sshc
+--doctor` probes the agent named pipes
+(`\\.\pipe\openssh-ssh-agent` and `\\.\pipe\pageant`) directly,
+so a stopped `ssh-agent` service shows up as `WARN` instead of the
+old "not applicable" placeholder.
 
 WSL2 also works the same way as v0.6 — the Linux build is still
 shipped and behaves identically inside a WSL distribution.
