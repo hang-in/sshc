@@ -384,4 +384,83 @@ test existed in v0.7.
    principle is "lock the handle you'll read/write through, don't
    re-open by path while holding a lock."
 
+## 11. Residual follow-ups (out of scope for v0.8.2, for the next round)
+
+Two items the v0.8.2 verification run surfaced. Neither is in the
+`a` save path — they're separate issues that just happened to be
+adjacent. Safe for the macOS-side Opus session to pick up; both
+fixes are platform-portable code that the Windows side only needs
+to verify, not write.
+
+### 11.1 `sshc.conf` ACL on Windows — user-visible
+
+**Symptom**: after sshc writes `~/.ssh/config.d/sshc.conf` on
+Windows, running `ssh -G <alias>` (or `sshc -v` which shells out to
+the same path) errors with:
+
+```
+Bad owner or permissions on C:\Users\<user>\.ssh\config.d\sshc.conf
+```
+
+Windows OpenSSH enforces a strict ACL check on `Include`d files
+(owner = user, no group/world read). sshc's
+`src/storage/writer.rs::set_owner_only_perms` is currently a no-op
+on `#[cfg(not(unix))]` (see line ~132 in v0.8.2), so newly written
+sshc.conf inherits whatever ACL its parent directory has — usually
+broader than what `ssh.exe` will accept.
+
+**Reproduction (Windows, after v0.8.2)**:
+
+```powershell
+ni $HOME\.ssh\config.d\sshc.conf -Force
+sshc -m         # 'a', fill in, Enter, q
+ssh -G wintest  # → "Bad owner or permissions on ..."
+```
+
+**Fix sketch (do on macOS-side Opus, verify on Windows side)**:
+- Replace the Windows `set_owner_only_perms` no-op with a real
+  implementation: set the file owner to the current user and DACL
+  to `SYSTEM:F + Administrators:F + <user>:F`, no inherited entries.
+- The Win32 path is `SetNamedSecurityInfoW` + `SetEntriesInAclW`
+  from `windows-sys` (`Win32_Security`, `Win32_Security_Authorization`).
+  The package already has `Win32_Foundation` and
+  `Win32_Storage_FileSystem` in `Cargo.toml`; add the two security
+  features as needed.
+- Existing test `test_writer_atomic_roundtrip` is `#[cfg(unix)]`;
+  add a `#[cfg(windows)]` companion that creates a file via
+  `with_locked_write` and asserts the resulting ACL contains exactly
+  the three expected ACEs (or at minimum: BUILTIN\Users / Everyone
+  is absent).
+- Verify on Windows side: `icacls $HOME\.ssh\config.d\sshc.conf`
+  shows only SYSTEM / Administrators / current user. `ssh -G` no
+  longer errors.
+
+**Why not in v0.8.2**: handoff §6 explicitly forbade touching
+`src/storage/writer.rs` semantics beyond the immediate
+lock-after-open fix; this is a separate change with its own
+test/verify cycle. Also requires Windows-side verification that
+this Opus session can't perform end-to-end.
+
+### 11.2 `test_editor_command_construction` flaky on Windows env
+
+**Symptom**: `exec::editor::tests::test_editor_command_construction`
+asserts `args.contains(&"+42".to_string())`. Passes only when
+`$EDITOR` is set to vim/nvim/nano/nano-tiny (see
+`src/exec/editor.rs::is_vim_like`, ~line 41). On a Windows host
+without `$EDITOR` set, the test resolves to `notepad.exe` and the
+`+LINE` argument convention doesn't apply, so the assertion fails.
+
+**Fix sketch** (purely test-side, no production code change):
+- In `src/exec/editor.rs::tests`, set `EDITOR=vim` (or any vim-like
+  shim) at the top of `test_editor_command_construction` *before*
+  calling `build_editor_command`, and restore on test exit. Mirror
+  the pattern of `test_editor_fallback_to_platform_default` (~line
+  64), which already manipulates `EDITOR`.
+- Or split the assertion: only check `+42` when the resolved editor
+  is vim-like; otherwise just assert the file path is present in
+  the args.
+
+**Why not in v0.8.2**: handoff §6 forbade touching `src/exec/*.rs`.
+Not user-visible either way — it's only a CI/local-test annoyance.
+
 ## End of handoff.
