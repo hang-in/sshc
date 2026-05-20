@@ -30,7 +30,7 @@ pub enum AppMode {
 
 /// Tracks why a form was opened, so the submitted payload can be routed.
 #[derive(Debug, Clone)]
-enum FormContext {
+pub(super) enum FormContext {
     AddHost,
     EditHost(String),
     EditTags(String),
@@ -244,7 +244,7 @@ impl App {
         self.active_form_context = None;
     }
 
-    fn open_add_form(&mut self) {
+    pub(super) fn open_add_form(&mut self) {
         if self.is_read_only() {
             self.status_message = Some(StatusMessage::new(
                 "read-only — press 'i' to add Include line and enable writes",
@@ -256,7 +256,7 @@ impl App {
         self.mode = AppMode::Modal(ModalKind::Form(Box::new(form)));
     }
 
-    fn open_modify_form(&mut self) {
+    pub(super) fn open_modify_form(&mut self) {
         if self.is_read_only() {
             self.status_message = Some(StatusMessage::new(
                 "read-only — press 'i' to add Include line",
@@ -293,7 +293,7 @@ impl App {
         self.mode = AppMode::Modal(ModalKind::Form(Box::new(form)));
     }
 
-    fn open_tag_form(&mut self) {
+    pub(super) fn open_tag_form(&mut self) {
         if self.is_read_only() {
             self.status_message = Some(StatusMessage::new(
                 "read-only — press 'i' to add Include line",
@@ -315,7 +315,7 @@ impl App {
         self.mode = AppMode::Modal(ModalKind::Form(Box::new(form)));
     }
 
-    fn open_delete_confirm(&mut self) {
+    pub(super) fn open_delete_confirm(&mut self) {
         if self.is_read_only() {
             self.status_message = Some(StatusMessage::new(
                 "read-only — press 'i' to add Include line",
@@ -336,7 +336,7 @@ impl App {
         });
     }
 
-    fn open_help_modal(&mut self) {
+    pub(super) fn open_help_modal(&mut self) {
         let msg = "j/k nav  / filter  Enter open  s ssh  r reconnect\n\
                    a add  d delete  t tags  e edit  i include  ? help  q quit"
             .to_string();
@@ -365,7 +365,7 @@ impl App {
         }
     }
 
-    fn apply_form(&mut self, ctx: FormContext, payload: FormPayload) {
+    pub(super) fn apply_form(&mut self, ctx: FormContext, payload: FormPayload) {
         let result = match (ctx, &payload) {
             (FormContext::AddHost, FormPayload::Host { .. }) => self.apply_add(&payload),
             (FormContext::EditHost(alias), FormPayload::Host { .. }) => {
@@ -386,7 +386,7 @@ impl App {
         }
     }
 
-    fn try_reconnect(&mut self) {
+    pub(super) fn try_reconnect(&mut self) {
         if let Some(alias) = self.last_connected.clone() {
             if self.hosts.iter().any(|h| h.alias == alias) {
                 self.pending_action = Some(AppAction::Connect(alias));
@@ -566,7 +566,7 @@ impl App {
         Ok(())
     }
 
-    fn apply_delete(&mut self, alias: &str) {
+    pub(super) fn apply_delete(&mut self, alias: &str) {
         if let Some(pos) = self.hosts.iter().position(|h| h.alias == alias) {
             self.hosts.remove(pos);
             if pos < self.probe_states.len() {
