@@ -113,13 +113,41 @@ impl App {
     }
 
     pub(super) fn apply_form(&mut self, ctx: FormContext, payload: FormPayload) {
-        let result = match (ctx, &payload) {
-            (FormContext::AddHost, FormPayload::Host { .. }) => self.apply_add(&payload),
-            (FormContext::EditHost(alias), FormPayload::Host { .. }) => {
-                self.apply_modify(&alias, &payload)
+        let result = match (ctx, payload) {
+            (
+                FormContext::AddHost,
+                FormPayload::Host {
+                    alias,
+                    hostname,
+                    user,
+                    port,
+                    identity_file,
+                    tags_csv,
+                    extra,
+                },
+            ) => {
+                let host =
+                    self.build_host(alias, hostname, user, port, identity_file, tags_csv, extra);
+                self.apply_add(host)
+            }
+            (
+                FormContext::EditHost(target_alias),
+                FormPayload::Host {
+                    alias,
+                    hostname,
+                    user,
+                    port,
+                    identity_file,
+                    tags_csv,
+                    extra,
+                },
+            ) => {
+                let new_host =
+                    self.build_host(alias, hostname, user, port, identity_file, tags_csv, extra);
+                self.apply_modify(&target_alias, new_host)
             }
             (FormContext::EditTags(alias), FormPayload::Tags { tags_csv }) => {
-                self.apply_tags(&alias, tags_csv)
+                self.apply_tags(&alias, &tags_csv)
             }
             _ => Ok(()),
         };
@@ -133,13 +161,53 @@ impl App {
         }
     }
 
+    /// Build a `Host` from already-destructured form fields. Source file is
+    /// the cached `sshc.conf` path (or the empty sentinel — see
+    /// `sshc_conf_path_or_blank`).
+    #[allow(clippy::too_many_arguments)]
+    fn build_host(
+        &self,
+        alias: String,
+        hostname: String,
+        user: String,
+        port: String,
+        identity_file: String,
+        tags_csv: String,
+        extra: String,
+    ) -> Host {
+        let port_parsed: Option<u16> = if port.is_empty() {
+            None
+        } else {
+            port.parse().ok()
+        };
+        let identity = if identity_file.is_empty() {
+            None
+        } else {
+            Some(std::path::PathBuf::from(identity_file))
+        };
+        let user_field = if user.is_empty() { None } else { Some(user) };
+        let extra_lines: Vec<String> = extra
+            .split(';')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect();
+        Host {
+            alias,
+            hostname: Some(hostname),
+            user: user_field,
+            port: port_parsed,
+            identity_file: identity,
+            line_start: 1,
+            source_file: self.sshc_conf_path_or_blank(),
+            tags: normalized_tags(&tags_csv),
+            extra: extra_lines,
+        }
+    }
+
     /// Apply an add-host form submission: append to in-memory hosts and
     /// persist via storage::with_locked_write.
-    fn apply_add(&mut self, payload: &FormPayload) -> Result<(), AppError> {
-        // The caller (apply_form) already matched FormPayload::Host before
-        // routing here, so host_from_payload always returns Some.
-        let host = host_from_payload(payload, &self.sshc_conf_path_or_blank())
-            .expect("apply_form routes Host payloads to apply_add");
+    fn apply_add(&mut self, host: Host) -> Result<(), AppError> {
         if self.hosts.iter().any(|h| h.alias == host.alias) {
             self.status_message = Some(StatusMessage::new(format!(
                 "alias '{}' already exists",
@@ -154,10 +222,7 @@ impl App {
         Ok(())
     }
 
-    fn apply_modify(&mut self, alias: &str, payload: &FormPayload) -> Result<(), AppError> {
-        // Caller already matched FormPayload::Host (see apply_add note).
-        let new_host = host_from_payload(payload, &self.sshc_conf_path_or_blank())
-            .expect("apply_form routes Host payloads to apply_modify");
+    fn apply_modify(&mut self, alias: &str, new_host: Host) -> Result<(), AppError> {
         if let Some(pos) = self.hosts.iter().position(|h| h.alias == alias) {
             self.hosts[pos] = new_host;
             self.persist_sshc_conf()?;
@@ -182,16 +247,7 @@ impl App {
     }
 
     fn apply_tags(&mut self, alias: &str, tags_csv: &str) -> Result<(), AppError> {
-        let normalized: Vec<String> =
-            tags_csv
-                .split(',')
-                .filter_map(normalize_tag)
-                .fold(Vec::new(), |mut acc, t| {
-                    if !acc.contains(&t) {
-                        acc.push(t);
-                    }
-                    acc
-                });
+        let normalized = normalized_tags(tags_csv);
         if let Some(host) = self.hosts.iter_mut().find(|h| h.alias == alias) {
             host.tags = normalized;
             self.persist_sshc_conf()?;
@@ -221,60 +277,15 @@ impl App {
     }
 }
 
-fn host_from_payload(payload: &FormPayload, source: &std::path::Path) -> Option<Host> {
-    if let FormPayload::Host {
-        alias,
-        hostname,
-        user,
-        port,
-        identity_file,
-        tags_csv,
-        extra,
-    } = payload
-    {
-        let port_parsed: Option<u16> = if port.is_empty() {
-            None
-        } else {
-            port.parse().ok()
-        };
-        let identity = if identity_file.is_empty() {
-            None
-        } else {
-            Some(std::path::PathBuf::from(identity_file))
-        };
-        let user_field = if user.is_empty() {
-            None
-        } else {
-            Some(user.clone())
-        };
-        let tags: Vec<String> =
-            tags_csv
-                .split(',')
-                .filter_map(normalize_tag)
-                .fold(Vec::new(), |mut acc, t| {
-                    if !acc.contains(&t) {
-                        acc.push(t);
-                    }
-                    acc
-                });
-        let extra_lines: Vec<String> = extra
-            .split(';')
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
-            .collect();
-        Some(Host {
-            alias: alias.clone(),
-            hostname: Some(hostname.clone()),
-            user: user_field,
-            port: port_parsed,
-            identity_file: identity,
-            line_start: 1,
-            source_file: source.to_path_buf(),
-            tags,
-            extra: extra_lines,
+/// Split a comma-separated tag string, normalize each token via
+/// `crate::config::tags::normalize_tag`, and dedupe (order-preserving).
+fn normalized_tags(csv: &str) -> Vec<String> {
+    csv.split(',')
+        .filter_map(normalize_tag)
+        .fold(Vec::new(), |mut acc, t| {
+            if !acc.contains(&t) {
+                acc.push(t);
+            }
+            acc
         })
-    } else {
-        None
-    }
 }
