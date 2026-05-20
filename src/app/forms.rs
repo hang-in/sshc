@@ -8,6 +8,47 @@ use crate::error::{AppError, SetupError};
 use crate::probe::ProbeState;
 use crate::ui::modal::{FormPayload, ModalAction, ModalKind};
 use crate::ui::status_bar::StatusMessage;
+use std::path::PathBuf;
+
+/// Scan `~/.ssh/` for plausible private-key files. Excludes:
+///   - public-key counterparts (`*.pub`)
+///   - well-known non-key files (`known_hosts*`, `authorized_keys`,
+///     `config*`, `environment`)
+///   - directories and hidden entries
+///
+/// Returns sorted by path. Empty Vec on any I/O failure. Lives in
+/// `app/forms.rs` rather than `ui/forms/host_form.rs` so that the
+/// `ui/forms/*` layer remains free of filesystem access (R-G8).
+fn discover_identity_files() -> Vec<PathBuf> {
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
+    let ssh_dir = home.join(".ssh");
+    let entries = match std::fs::read_dir(&ssh_dir) {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+    const EXCLUDED_PREFIXES: &[&str] = &["known_hosts", "authorized_keys", "config", "environment"];
+    let mut candidates: Vec<PathBuf> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            if !path.is_file() {
+                return None;
+            }
+            let name = path.file_name()?.to_str()?;
+            if name.starts_with('.') || name.ends_with(".pub") {
+                return None;
+            }
+            if EXCLUDED_PREFIXES.iter().any(|p| name.starts_with(p)) {
+                return None;
+            }
+            Some(path)
+        })
+        .collect();
+    candidates.sort();
+    candidates
+}
 
 impl App {
     pub(super) fn open_add_form(&mut self) {
@@ -17,7 +58,7 @@ impl App {
             ));
             return;
         }
-        let form = crate::ui::forms::HostForm::new();
+        let form = crate::ui::forms::HostForm::new(discover_identity_files());
         self.active_form_context = Some(FormContext::AddHost);
         self.mode = super::AppMode::Modal(ModalKind::Form(Box::new(form)));
     }
@@ -54,6 +95,7 @@ impl App {
             &identity,
             &tags_csv,
             &extra_joined,
+            discover_identity_files(),
         );
         self.active_form_context = Some(FormContext::EditHost(host.alias.clone()));
         self.mode = super::AppMode::Modal(ModalKind::Form(Box::new(form)));

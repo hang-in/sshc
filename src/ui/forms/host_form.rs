@@ -24,54 +24,26 @@ pub struct HostForm {
     identity_candidates: Vec<PathBuf>,
 }
 
-/// Scan `~/.ssh/` for plausible private-key files. Excludes:
-///   - public-key counterparts (`*.pub`)
-///   - well-known non-key files (`known_hosts*`, `authorized_keys`,
-///     `config*`, `environment`)
-///   - directories and hidden entries
-///
-/// Returns sorted by path. Empty Vec on any I/O failure.
-fn discover_identity_files() -> Vec<PathBuf> {
-    let Some(home) = dirs::home_dir() else {
-        return Vec::new();
-    };
-    let ssh_dir = home.join(".ssh");
-    let entries = match std::fs::read_dir(&ssh_dir) {
-        Ok(e) => e,
-        Err(_) => return Vec::new(),
-    };
-    const EXCLUDED_PREFIXES: &[&str] = &["known_hosts", "authorized_keys", "config", "environment"];
-    let mut candidates: Vec<PathBuf> = entries
-        .flatten()
-        .filter_map(|entry| {
-            let path = entry.path();
-            if !path.is_file() {
-                return None;
-            }
-            let name = path.file_name()?.to_str()?;
-            if name.starts_with('.') || name.ends_with(".pub") {
-                return None;
-            }
-            if EXCLUDED_PREFIXES.iter().any(|p| name.starts_with(p)) {
-                return None;
-            }
-            Some(path)
-        })
-        .collect();
-    candidates.sort();
-    candidates
-}
-
 impl HostForm {
-    pub fn new() -> Self {
+    /// Construct an empty form. `identity_candidates` is the list of
+    /// private-key paths the IdentityFile field will cycle through with
+    /// ↑/↓ — discovered by the caller (typically via
+    /// `app::forms::discover_identity_files`), kept out of this widget
+    /// to keep `ui/forms/*` free of filesystem access (R-G8).
+    pub fn new(identity_candidates: Vec<PathBuf>) -> Self {
         Self {
             fields: Default::default(),
             active_index: 0,
             error: None,
-            identity_candidates: discover_identity_files(),
+            identity_candidates,
         }
     }
 
+    // The argument-count threshold (7) was tuned for the v0.5 surface;
+    // adding `identity_candidates` to keep filesystem access out of
+    // `ui/forms/*` (R-G8) bumps this to 8. A struct-of-args cleanup is
+    // a natural fit for the v0.8 G2 promote round.
+    #[allow(clippy::too_many_arguments)]
     pub fn from_host(
         alias: &str,
         hostname: &str,
@@ -80,6 +52,7 @@ impl HostForm {
         identity_file: &str,
         tags_csv: &str,
         extra: &str,
+        identity_candidates: Vec<PathBuf>,
     ) -> Self {
         Self {
             fields: [
@@ -93,7 +66,7 @@ impl HostForm {
             ],
             active_index: 0,
             error: None,
-            identity_candidates: discover_identity_files(),
+            identity_candidates,
         }
     }
 
@@ -181,12 +154,6 @@ impl HostForm {
             tags_csv: tags_csv.to_string(),
             extra: extra.to_string(),
         })
-    }
-}
-
-impl Default for HostForm {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -349,7 +316,7 @@ mod tests {
 
     #[test]
     fn test_new_is_empty() {
-        let form = HostForm::new();
+        let form = HostForm::new(Vec::new());
         assert_eq!(form.active_index, 0);
         assert!(form.error.is_none());
         assert!(form.fields.iter().all(|s| s.is_empty()));
@@ -357,7 +324,7 @@ mod tests {
 
     #[test]
     fn test_tab_wraparound() {
-        let mut form = HostForm::new();
+        let mut form = HostForm::new(Vec::new());
         for expected in &[1usize, 2, 3, 4, 5, 6, 0] {
             form.handle_key(ke(KeyCode::Tab));
             assert_eq!(form.active_index, *expected);
@@ -366,7 +333,7 @@ mod tests {
 
     #[test]
     fn test_backtab_wraparound() {
-        let mut form = HostForm::new();
+        let mut form = HostForm::new(Vec::new());
         for expected in &[6usize, 5, 4, 3, 2, 1, 0] {
             form.handle_key(ke(KeyCode::BackTab));
             assert_eq!(form.active_index, *expected);
@@ -375,7 +342,7 @@ mod tests {
 
     #[test]
     fn test_char_backspace_ctrl_u() {
-        let mut form = HostForm::new();
+        let mut form = HostForm::new(Vec::new());
         form.handle_key(ke(KeyCode::Char('a')));
         assert_eq!(form.fields[0], "a");
         form.handle_key(ke(KeyCode::Backspace));
@@ -388,7 +355,7 @@ mod tests {
 
     #[test]
     fn test_esc_cancels() {
-        let mut form = HostForm::new();
+        let mut form = HostForm::new(Vec::new());
         assert!(matches!(
             form.handle_key(ke(KeyCode::Esc)),
             FormOutcome::Cancel
@@ -397,14 +364,14 @@ mod tests {
 
     #[test]
     fn test_enter_advances_non_last_field() {
-        let mut form = HostForm::new();
+        let mut form = HostForm::new(Vec::new());
         form.handle_key(ke(KeyCode::Enter));
         assert_eq!(form.active_index, 1);
     }
 
     #[test]
     fn test_enter_on_last_field_submits_when_valid() {
-        let mut form = HostForm::new();
+        let mut form = HostForm::new(Vec::new());
         form.fields[0] = "dev1".to_string();
         form.fields[1] = "10.0.0.1".to_string();
         form.active_index = 6;
@@ -421,7 +388,7 @@ mod tests {
 
     #[test]
     fn test_validation_missing_alias() {
-        let mut form = HostForm::new();
+        let mut form = HostForm::new(Vec::new());
         form.fields[1] = "host".to_string();
         form.active_index = 6;
         assert!(matches!(
@@ -433,7 +400,7 @@ mod tests {
 
     #[test]
     fn test_validation_invalid_port() {
-        let mut form = HostForm::new();
+        let mut form = HostForm::new(Vec::new());
         form.fields[0] = "dev".to_string();
         form.fields[1] = "h".to_string();
         form.fields[3] = "70000".to_string();
@@ -447,7 +414,7 @@ mod tests {
 
     #[test]
     fn test_validation_shell_metachar() {
-        let mut form = HostForm::new();
+        let mut form = HostForm::new(Vec::new());
         form.fields[0] = "dev".to_string();
         form.fields[1] = "h".to_string();
         form.fields[4] = "/etc/key;rm".to_string();
@@ -461,7 +428,16 @@ mod tests {
 
     #[test]
     fn test_from_host_populates_fields() {
-        let form = HostForm::from_host("a", "h", "u", "22", "/k", "x,y", "ProxyJump bastion");
+        let form = HostForm::from_host(
+            "a",
+            "h",
+            "u",
+            "22",
+            "/k",
+            "x,y",
+            "ProxyJump bastion",
+            Vec::new(),
+        );
         assert_eq!(form.fields[0], "a");
         assert_eq!(form.fields[1], "h");
         assert_eq!(form.fields[2], "u");
