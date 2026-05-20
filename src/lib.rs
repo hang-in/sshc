@@ -4,6 +4,7 @@ pub mod error;
 pub mod exec;
 pub mod inline_app;
 pub mod probe;
+pub mod run;
 pub mod setup;
 pub mod state;
 pub mod storage;
