@@ -118,9 +118,18 @@ fn render_inline(f: &mut Frame, app: &InlineApp) {
     let render_width = row_width.min(viewport.width);
     let area = Rect::new(viewport.x, viewport.y, render_width, viewport.height);
 
-    let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).split(area);
+    // v0.6: insert a one-line "user@host:port" summary between the host
+    // table and the two-line status block. Inline mode's min viewport is
+    // 8 rows (clamp in cli.rs), so the extra line always fits.
+    let chunks = Layout::vertical([
+        Constraint::Min(1),
+        Constraint::Length(1),
+        Constraint::Length(2),
+    ])
+    .split(area);
     let table_area = chunks[0];
-    let status_area = chunks[1];
+    let summary_area = chunks[1];
+    let status_area = chunks[2];
 
     let constraints = [
         Constraint::Length(w.alias + pad),
@@ -146,11 +155,20 @@ fn render_inline(f: &mut Frame, app: &InlineApp) {
             };
             let hostname = host.hostname.as_deref().unwrap_or("-").to_string();
             let port = host.port.map(|p| p.to_string()).unwrap_or_default();
+            // ★ in yellow = favorite (sticky, user-pinned).
+            // ★ in cyan   = last_connected (transient, recency-derived).
+            // favorite wins when both apply.
+            let is_fav = app.is_favorite(&host.alias);
             let is_last = app.last_connected.as_deref() == Some(host.alias.as_str());
-            let status_cell = if is_last {
+            let status_cell = if is_fav {
                 Cell::from(Line::from(vec![
                     Span::raw(" "),
                     Span::styled("★", Style::default().fg(Color::Yellow)),
+                ]))
+            } else if is_last {
+                Cell::from(Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("★", Style::default().fg(Color::Cyan)),
                 ]))
             } else {
                 Cell::from("  ")
@@ -178,6 +196,25 @@ fn render_inline(f: &mut Frame, app: &InlineApp) {
                 .add_modifier(Modifier::BOLD),
         );
     f.render_stateful_widget(table, table_area, &mut state);
+
+    // One-line "user@host:port" preview of the currently selected row.
+    let summary_line = if let Some(host) = app
+        .filtered
+        .get(app.selected)
+        .and_then(|&i| app.hosts.get(i))
+    {
+        let user = host
+            .user
+            .as_deref()
+            .filter(|u| !u.is_empty())
+            .unwrap_or(fallback_user.as_str());
+        let hostname = host.hostname.as_deref().unwrap_or("-");
+        let port = host.port.map(|p| format!(":{p}")).unwrap_or_default();
+        format!(" → {user}@{hostname}{port}")
+    } else {
+        String::new()
+    };
+    f.render_widget(Paragraph::new(summary_line).style(dim), summary_area);
 
     let status_chunks =
         Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(status_area);

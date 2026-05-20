@@ -17,6 +17,13 @@ pub struct InlineApp {
     pub selected: usize,
     pub query: String,
     pub last_connected: Option<String>,
+    /// Snapshot of `state.memory.favorites` at construction. Inline mode
+    /// is read-only, so this is never mutated after `new_with_state`.
+    pub favorites: Vec<String>,
+    /// Snapshot of `(alias, ts)` from `state.memory.recent`. Used as the
+    /// secondary sort key (recency descending). Captured at construction
+    /// for the same reason as `favorites`.
+    pub recent: Vec<(String, u64)>,
     pending_action: Option<InlineAction>,
     matcher: nucleo::Matcher,
 }
@@ -31,6 +38,8 @@ impl InlineApp {
             selected: 0,
             query: String::new(),
             last_connected: None,
+            favorites: Vec::new(),
+            recent: Vec::new(),
             pending_action: None,
             matcher: nucleo::Matcher::new(nucleo::Config::DEFAULT),
         }
@@ -38,15 +47,25 @@ impl InlineApp {
 
     pub fn new_with_state(hosts: Vec<Host>, state: &State) -> Self {
         let mut app = Self::new(hosts);
-        // Prefer the v0.6 `recent` head; fall back to the legacy field
-        // on first load from a pre-v0.6 state.toml.
         app.last_connected = state
             .memory
             .recent
             .first()
             .map(|e| e.alias.clone())
             .or_else(|| state.memory.last_connected_alias.clone());
+        app.favorites = state.memory.favorites.clone();
+        app.recent = state
+            .memory
+            .recent
+            .iter()
+            .map(|e| (e.alias.clone(), e.ts))
+            .collect();
+        app.apply_filter();
         app
+    }
+
+    pub fn is_favorite(&self, alias: &str) -> bool {
+        self.favorites.iter().any(|a| a == alias)
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
@@ -142,21 +161,42 @@ impl InlineApp {
 
     fn apply_filter(&mut self) {
         let q = self.query.clone();
-        let mut scored: Vec<(usize, u32)> = self
-            .hosts
-            .iter()
-            .enumerate()
-            .filter_map(|(i, h)| {
-                let s = h.fuzzy_score(&q, &mut self.matcher);
-                if s > 0 {
-                    Some((i, s))
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let favorites: std::collections::HashSet<&str> =
+            self.favorites.iter().map(|s| s.as_str()).collect();
+        let recency: std::collections::HashMap<&str, u64> =
+            self.recent.iter().map(|(a, t)| (a.as_str(), *t)).collect();
+        // When the query is empty, fuzzy_score returns 0 for every host,
+        // which drops them all. Treat empty query as "everything in".
+        let mut scored: Vec<(usize, u32)> = if q.is_empty() {
+            self.hosts.iter().enumerate().map(|(i, _)| (i, 1)).collect()
+        } else {
+            self.hosts
+                .iter()
+                .enumerate()
+                .filter_map(|(i, h)| {
+                    let s = h.fuzzy_score(&q, &mut self.matcher);
+                    if s > 0 {
+                        Some((i, s))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
 
-        scored.sort_by(|a, b| b.1.cmp(&a.1));
+        scored.sort_by(|a, b| {
+            let fa = favorites.contains(self.hosts[a.0].alias.as_str());
+            let fb = favorites.contains(self.hosts[b.0].alias.as_str());
+            let ta = recency
+                .get(self.hosts[a.0].alias.as_str())
+                .copied()
+                .unwrap_or(0);
+            let tb = recency
+                .get(self.hosts[b.0].alias.as_str())
+                .copied()
+                .unwrap_or(0);
+            fb.cmp(&fa).then(tb.cmp(&ta)).then(b.1.cmp(&a.1))
+        });
         self.filtered = scored.into_iter().map(|(i, _)| i).collect();
 
         if self.filtered.is_empty() {
