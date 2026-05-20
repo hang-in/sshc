@@ -455,15 +455,13 @@ impl App {
     /// Re-render the in-memory hosts that live in sshc.conf and atomically
     /// rewrite the file. Uses the cached `self.sshc_conf_path` for both
     /// the filter predicate and the write target so the two comparisons
-    /// sit on the same `PathBuf` instance. v0.7.x persisted by calling
-    /// `crate::storage::sshc_conf_path()` again here, which on macOS
-    /// happened to produce the same bytes as the App::new-time cache
-    /// but on Windows could surface a differently-normalized `PathBuf`
-    /// (dirs::home_dir() fallback chain + NFC/NFD asymmetry on user
-    /// directories with non-ASCII names). The mismatch silently dropped
-    /// freshly-added hosts from the serialized output — sshc.conf got
-    /// rewritten to empty bytes, the form looked like it submitted,
-    /// and the new host never appeared in the list on next refresh.
+    /// sit on the same `PathBuf` instance — v0.8.1 unified this after
+    /// v0.7.x recomputed the path inside the function. The path-cache
+    /// unification was correct but didn't fix the Windows `a`-save
+    /// failure: the real cause was `with_locked_write` opening a second
+    /// `File::open(path)` after `LockFileEx`, which trips
+    /// `ERROR_LOCK_VIOLATION` on Windows. Fixed in v0.8.2 by reading
+    /// from the already-locked handle. See `src/storage/writer.rs`.
     fn persist_sshc_conf(&self) -> Result<(), AppError> {
         let path = self
             .sshc_conf_path

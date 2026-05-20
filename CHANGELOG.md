@@ -8,6 +8,49 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.8.2] — 2026-05-21
+
+Windows hotfix over v0.8.1 — actually fixes the silent `a` (add host)
+data loss. The v0.8.1 changelog blamed `PathBuf` normalization
+(NFC/NFD on non-ASCII home directories) and unified the cached path
+on both sides of the filter; that change was internally correct but
+**did not fix the bug**. The real cause was one layer deeper, in
+`with_locked_write`. No behavior change on macOS / Linux.
+
+### Fixed
+
+- **Manage-mode `a` (add host) on Windows actually persists the new
+  host to `sshc.conf` now.** `crate::storage::with_locked_write`
+  acquired an exclusive `LockFileEx` on its first handle and then —
+  before handing the buffer to the mutator — opened a *second*
+  `File::open(path)` to read the existing content. Windows file
+  locking is mandatory, so the second open inside the locked range
+  returned `ERROR_LOCK_VIOLATION` (os error 33) and the writer
+  bailed out with `StorageError::ReadFailed` before any bytes were
+  written. The error did surface as a `status_message` from
+  `apply_form`, but the modal-close redraw overwrote it almost
+  immediately and the user only saw an empty file.
+
+  Unix `flock` is advisory and silently permitted the second open,
+  which is why every pre-v0.8.2 release looked fine on macOS / Linux
+  while consistently failing on Windows from v0.7 onward.
+
+  Fix: read the existing content from the already-locked handle via
+  `seek(SeekFrom::Start(0)) + read_to_string` instead of opening a
+  second handle. One handle, one lock, no violation. Added a
+  cross-platform regression test
+  (`app::tests::test_apply_form_add_host_writes_through_locked_writer`)
+  that drives `apply_form` end-to-end against a temp path so the
+  same class of regression can't slip back in silently.
+
+### Note on v0.8.1
+
+The v0.8.1 patch (path-cache unification in `persist_sshc_conf`) is
+still in place and still correct as defense-in-depth — it just
+wasn't the root cause. If you upgraded to v0.8.1 expecting the `a`
+fix to land and saw the same empty-file behavior, v0.8.2 is the
+release you actually want.
+
 ## [0.8.1] — 2026-05-20
 
 Windows hotfix over v0.8.0 — fixes a long-running silent data loss

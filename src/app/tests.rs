@@ -514,3 +514,44 @@ fn test_f_key_in_manage_toggles_pin_and_queues_save() {
     assert!(app.is_favorite("managed"));
     assert_eq!(app.take_action(), Some(AppAction::SaveState));
 }
+
+// Regression for v0.8.2: `a` (add host) on Windows used to silently leave
+// sshc.conf empty because `with_locked_write` opened a second `File::open`
+// after `LockFileEx` and tripped ERROR_LOCK_VIOLATION (mandatory locking on
+// Windows). The fix reads from the locked handle directly; this test drives
+// `apply_form` end-to-end against a temp path so the regression can't slip
+// back in unnoticed on any platform.
+#[test]
+fn test_apply_form_add_host_writes_through_locked_writer() {
+    use crate::ui::modal::FormPayload;
+    use assert_fs::prelude::*;
+
+    let temp = assert_fs::TempDir::new().unwrap();
+    let sshc_conf = temp.child("sshc.conf");
+    sshc_conf.touch().unwrap();
+    let sshc_path = sshc_conf.path().to_path_buf();
+
+    let mut app = App::new(vec![]);
+    app.sshc_conf_path = Some(sshc_path.clone());
+
+    let payload = FormPayload::Host {
+        alias: "wintest".to_string(),
+        hostname: "1.2.3.4".to_string(),
+        user: String::new(),
+        port: String::new(),
+        identity_file: String::new(),
+        tags_csv: String::new(),
+        extra: String::new(),
+    };
+    app.apply_form(FormContext::AddHost, payload);
+
+    let content = std::fs::read_to_string(&sshc_path).unwrap_or_default();
+    assert!(
+        content.contains("Host wintest"),
+        "sshc.conf must contain 'Host wintest' after apply_form; got {} bytes: {:?}. \
+         status_message={:?}",
+        content.len(),
+        content,
+        app.status_message.as_ref().map(|m| m.text().to_string()),
+    );
+}

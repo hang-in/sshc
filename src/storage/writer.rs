@@ -1,5 +1,5 @@
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::process;
 
@@ -29,7 +29,7 @@ pub fn with_locked_write<F>(path: &Path, create: bool, mutator: F) -> Result<(),
 where
     F: FnOnce(&str) -> String,
 {
-    let file = if create {
+    let mut file = if create {
         OpenOptions::new()
             .read(true)
             .write(true)
@@ -43,16 +43,20 @@ where
 
     try_lock_exclusive(&file)?;
 
-    let content = if path.exists() {
-        let mut s = String::new();
-        let mut reader = File::open(path).map_err(StorageError::ReadFailed)?;
-        reader
-            .read_to_string(&mut s)
-            .map_err(StorageError::ReadFailed)?;
-        s
-    } else {
-        String::new()
-    };
+    // Read from the locked handle itself. A second `File::open(path)` here
+    // would trip ERROR_LOCK_VIOLATION (os error 33) on Windows because
+    // `LockFileEx` is mandatory — even the same process can't open a
+    // second handle into the locked range. Unix's `flock` is advisory and
+    // permitted the second open, which is why every pre-v0.8.2 release
+    // looked fine on macOS and silently failed `a` saves on Windows: the
+    // form ran, `apply_form` got `StorageError::ReadFailed`, set a status
+    // bar message that got immediately overwritten by the modal-close
+    // redraw, and the user only saw an empty sshc.conf.
+    file.seek(SeekFrom::Start(0))
+        .map_err(StorageError::ReadFailed)?;
+    let mut content = String::new();
+    file.read_to_string(&mut content)
+        .map_err(StorageError::ReadFailed)?;
 
     let new_content = mutator(&content);
 
