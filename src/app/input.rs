@@ -72,9 +72,6 @@ impl App {
                         self.pending_action = Some(AppAction::EditConfig);
                     }
                 }
-                KeyCode::Char('r') => {
-                    self.try_reconnect();
-                }
                 KeyCode::Char('a') => self.open_add_form(),
                 KeyCode::Char('d') => self.open_delete_confirm(),
                 KeyCode::Char('f') => self.toggle_selected_favorite(),

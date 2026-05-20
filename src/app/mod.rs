@@ -101,16 +101,6 @@ impl App {
         self.active_form_context = None;
     }
 
-    pub(super) fn try_reconnect(&mut self) {
-        if let Some(alias) = self.last_connected.clone() {
-            if self.hosts.iter().any(|h| h.alias == alias) {
-                self.pending_action = Some(AppAction::Connect(alias));
-                return;
-            }
-        }
-        self.status_message = Some(StatusMessage::new("no recent host to reconnect"));
-    }
-
     /// Drain the pending action.
     pub fn take_action(&mut self) -> Option<AppAction> {
         self.pending_action.take()

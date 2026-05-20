@@ -233,7 +233,7 @@ pub fn status_line(filter_mode: bool, filter_query: &str) -> Text<'static> {
         let dim = Style::default().add_modifier(Modifier::DIM);
         Text::from(vec![
             Line::from(Span::styled(
-                " j/k nav  / filter  Enter ssh  r reconnect".to_string(),
+                " j/k nav  / filter  Enter open  s ssh  f pin".to_string(),
                 dim,
             )),
             Line::from(Span::styled(

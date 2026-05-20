@@ -127,34 +127,6 @@ fn test_app_replace_hosts_fallback_when_alias_gone() {
 }
 
 #[test]
-fn test_app_try_reconnect_none_sets_status() {
-    let mut app = App::new(vec![]);
-    app.last_connected = None;
-    app.try_reconnect();
-    let msg = app.status_message.as_ref().unwrap();
-    assert!(msg.text().contains("no recent host"));
-    assert!(app.pending_action.is_none());
-}
-
-#[test]
-fn test_app_try_reconnect_valid_alias() {
-    let mut app = App::new(vec![make_host("a"), make_host("b")]);
-    app.last_connected = Some("b".to_string());
-    app.try_reconnect();
-    assert_eq!(app.take_action(), Some(AppAction::Connect("b".to_string())));
-}
-
-#[test]
-fn test_app_try_reconnect_alias_gone_sets_status() {
-    let mut app = App::new(vec![make_host("a")]);
-    app.last_connected = Some("ghost".to_string());
-    app.try_reconnect();
-    let msg = app.status_message.as_ref().unwrap();
-    assert!(msg.text().contains("no recent host"));
-    assert!(app.pending_action.is_none());
-}
-
-#[test]
 fn test_app_take_action_quit_via_q() {
     let mut app = App::new(vec![]);
     app.handle_key(KeyEvent::from(KeyCode::Char('q')));

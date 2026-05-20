@@ -103,7 +103,7 @@ impl App {
     }
 
     pub(super) fn open_help_modal(&mut self) {
-        let msg = "j/k nav  / filter  Enter open  s ssh  r reconnect\n\
+        let msg = "j/k nav  / filter  Enter open  s ssh  f pin\n\
                    a add  d delete  t tags  e edit  i include  ? help  q quit"
             .to_string();
         self.mode = super::AppMode::Modal(ModalKind::Info {
