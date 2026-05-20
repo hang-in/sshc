@@ -2,8 +2,12 @@
 
 > Manage and connect to your SSH hosts from a fast Rust TUI.
 
+[![release](https://img.shields.io/github/v/release/hang-in/sshc?sort=semver)](https://github.com/hang-in/sshc/releases)
+[![downloads](https://img.shields.io/github/downloads/hang-in/sshc/total)](https://github.com/hang-in/sshc/releases)
 [![brew tap](https://img.shields.io/badge/brew-hang--in%2Ftap%2Fsshc-blue)](https://github.com/hang-in/homebrew-tap)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![rust](https://img.shields.io/badge/rust-1.85%2B-orange)](https://www.rust-lang.org)
+[![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](https://github.com/hang-in/sshc/releases)
 
 ```sh
 brew install hang-in/tap/sshc
@@ -32,13 +36,15 @@ sshc
 
 That's it. sshc reads your existing `~/.ssh/config` and the files it
 `Include`s — nothing extra to configure. For add / edit / delete +
-tags, run `sshc -m`.
+tags, run `sshc -m`. Already know the alias? `sshc <alias>` skips the
+TUI and `ssh`s straight in — handy for shell aliases and scripts.
 
 ## Two modes
 
 | Command | Mode | What it does |
 |---|---|---|
 | `sshc` | Inline | fzf-style host picker → ssh → back to shell. No alternate-screen takeover. |
+| `sshc <alias>` | Direct | Skip the picker, look up `<alias>` in your config, `ssh` immediately. Unknown alias → exit 1. |
 | `sshc -m` | Manage | Full TUI: add/edit/delete hosts, tags, probe glyphs, `$EDITOR` jump. |
 
 Inline mode never leaves your scrollback view. Manage mode opens the
@@ -92,7 +98,7 @@ brew install hang-in/tap/sshc
 ### Cargo from git
 
 ```sh
-cargo install --git https://github.com/hang-in/sshc --tag v0.4.1
+cargo install --git https://github.com/hang-in/sshc --tag v0.5.0
 ```
 
 ### From source

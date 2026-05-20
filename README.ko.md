@@ -2,8 +2,12 @@
 
 > Rust로 만든 빠른 TUI로 SSH 호스트를 관리·연결합니다.
 
+[![release](https://img.shields.io/github/v/release/hang-in/sshc?sort=semver)](https://github.com/hang-in/sshc/releases)
+[![downloads](https://img.shields.io/github/downloads/hang-in/sshc/total)](https://github.com/hang-in/sshc/releases)
 [![brew tap](https://img.shields.io/badge/brew-hang--in%2Ftap%2Fsshc-blue)](https://github.com/hang-in/homebrew-tap)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![rust](https://img.shields.io/badge/rust-1.85%2B-orange)](https://www.rust-lang.org)
+[![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](https://github.com/hang-in/sshc/releases)
 
 ```sh
 brew install hang-in/tap/sshc
@@ -31,13 +35,15 @@ sshc
 
 이게 전부입니다. sshc는 기존 `~/.ssh/config`와 거기에서 `Include`된
 파일들을 그대로 읽습니다 — 별도 설정 없습니다. 추가/수정/삭제 + 태그가
-필요하면 `sshc -m`.
+필요하면 `sshc -m`. alias를 이미 알면 `sshc <alias>`로 TUI 없이 바로
+`ssh` 접속 — 셸 alias / 스크립트에 유용합니다.
 
 ## 두 가지 모드
 
 | 명령 | 모드 | 하는 일 |
 |---|---|---|
 | `sshc` | 인라인 | fzf 스타일 picker → ssh → 셸 복귀. Alt 화면 미사용. |
+| `sshc <alias>` | 다이렉트 | picker 생략, `<alias>`를 설정에서 찾아 즉시 `ssh`. 알 수 없는 alias → exit 1. |
 | `sshc -m` | 관리 | 풀 TUI: 추가/수정/삭제, 태그, probe 글리프, `$EDITOR` 점프. |
 
 인라인 모드는 스크롤백을 그대로 둡니다. 관리 모드는 편집에 적합한
@@ -90,7 +96,7 @@ brew install hang-in/tap/sshc
 ### git에서 cargo install
 
 ```sh
-cargo install --git https://github.com/hang-in/sshc --tag v0.4.1
+cargo install --git https://github.com/hang-in/sshc --tag v0.5.0
 ```
 
 ### 소스 빌드

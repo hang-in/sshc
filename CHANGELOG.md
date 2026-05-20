@@ -8,6 +8,58 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.5.0] — 2026-05-20
+
+Refactor lands: `src/app/mod.rs` (944 LOC pre-split) is now broken into
+five focused sub-modules. One small user-facing feature comes with it.
+
+### Added
+
+- **`sshc <alias>` direct-connect.** A positional alias on the command
+  line skips the TUI entirely, looks the alias up in your parsed
+  config, and runs `ssh <alias>` in the inherited terminal. Designed
+  for shell aliases and scripts that already know which host they
+  want. Unknown alias prints to stderr and exits 1 without invoking
+  ssh. `state.last_connected_alias` is updated on a launch attempt
+  (matches inline/manage).
+- **`src/cli.rs`** picks up the entire dispatch path
+  (`parse_mode`, `print_help`, `print_version`, positional handling).
+  `main.rs` is now 8 non-comment lines.
+
+### Changed
+
+- **`src/app/mod.rs` split** into thematic sub-modules:
+  - `src/app/input.rs` — `handle_key`, `handle_list_key`,
+    `handle_modal_key`, `dispatch_modal_action`, `activate_selected`.
+  - `src/app/forms.rs` — `open_*_form`, `open_help_modal`, `apply_form`,
+    `apply_add` / `apply_modify` / `apply_delete` / `apply_tags`,
+    `persist_sshc_conf`, plus the new `build_host` and
+    `normalized_tags` helpers.
+  - `src/app/tests.rs` — the entire `#[cfg(test)] mod tests` block.
+  - `src/app/filter.rs` was already extracted in v0.4.3.
+  - `mod.rs` shrinks from 1040 → 246 lines and keeps only the `App`
+    struct, the public enums, constructors, navigation, accessors,
+    and the SSH lifecycle hooks (`try_reconnect`, `on_ssh_finished`,
+    `replace_hosts`, `apply_probe_updates`).
+- **`apply_add` / `apply_modify` no longer call
+  `host_from_payload(...).expect(...)`.** `apply_form` destructures
+  `FormPayload::Host` inline and calls a new `build_host` helper that
+  returns an already-built `Host`. Closes the deepseek-v4-pro review
+  item flagging the unreachable `expect`.
+- **`normalized_tags(csv: &str) -> Vec<String>`** consolidates the
+  `split(',') → filter_map(normalize_tag) → dedup` chain that was
+  previously duplicated in `apply_tags` and the now-removed
+  `host_from_payload`.
+
+### Internal
+
+- All 147 existing unit tests still pass; integration tests untouched.
+- R-G1..R-G9 module-boundary greps still clean.
+- `main.rs` is well under the R-G4 80-line bootstrap cap (8 lines).
+- No file in `src/app/` exceeds ~290 non-comment lines.
+- `clippy --all-targets -- -D warnings` clean.
+- `fmt --check` clean.
+
 ## [0.4.3] — 2026-05-20
 
 Refactor + small fixes pass before v0.5 starts adding new features. No
