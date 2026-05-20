@@ -8,6 +8,39 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.8.1] — 2026-05-20
+
+Windows hotfix over v0.8.0 — fixes a long-running silent data loss
+in the add-host form. No behavior change on macOS / Linux.
+
+### Fixed
+
+- **Manage-mode `a` (add host) silently wrote an empty `sshc.conf` on
+  Windows when the user directory had non-ASCII characters in its
+  path** (e.g. `C:\Users\사자`). The form looked like it submitted —
+  modal closed, no error message — but the new host never appeared
+  in the list, and the on-disk `sshc.conf` ended up empty. The
+  symptom traces back to `persist_sshc_conf` in `src/app/forms.rs`:
+  it filtered which in-memory hosts to serialize by comparing
+  `host.source_file` against a *freshly recomputed*
+  `crate::storage::sshc_conf_path()`. The `source_file` field was
+  set at host-build time from the **App::new-cached** copy, so on
+  Windows the two `PathBuf`s could differ in normalization (NFC vs
+  NFD on the home-directory component) even though the underlying
+  bytes were equivalent. The filter then matched zero rows and the
+  serializer wrote an empty file.
+
+  This was actually present since v0.7-era (when manage mode add
+  first landed), but only Windows users with non-ASCII paths could
+  trigger it; v0.7.2 (backslash) and v0.7.3 (rename lock) fixes
+  cleared the *visible* failures one step earlier in the pipeline,
+  so the data-loss path stayed hidden until v0.8.
+
+  Fix: `persist_sshc_conf` now uses the cached `self.sshc_conf_path`
+  for both the filter predicate and the write target, so the two
+  comparisons sit on the same `PathBuf` instance regardless of
+  platform normalization quirks.
+
 ## [0.8.0] — 2026-05-20
 
 Feature round on top of the v0.7-series Windows platform work. Three

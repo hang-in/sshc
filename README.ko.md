@@ -108,7 +108,7 @@ brew install hang-in/tap/sshc
 ### 소스에서 cargo install
 
 ```sh
-cargo install --git https://github.com/hang-in/sshc --tag v0.8.0
+cargo install --git https://github.com/hang-in/sshc --tag v0.8.1
 ```
 
 ### 소스 빌드

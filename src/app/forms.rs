@@ -453,13 +453,22 @@ impl App {
     }
 
     /// Re-render the in-memory hosts that live in sshc.conf and atomically
-    /// rewrite the file.
+    /// rewrite the file. Uses the cached `self.sshc_conf_path` for both
+    /// the filter predicate and the write target so the two comparisons
+    /// sit on the same `PathBuf` instance. v0.7.x persisted by calling
+    /// `crate::storage::sshc_conf_path()` again here, which on macOS
+    /// happened to produce the same bytes as the App::new-time cache
+    /// but on Windows could surface a differently-normalized `PathBuf`
+    /// (dirs::home_dir() fallback chain + NFC/NFD asymmetry on user
+    /// directories with non-ASCII names). The mismatch silently dropped
+    /// freshly-added hosts from the serialized output — sshc.conf got
+    /// rewritten to empty bytes, the form looked like it submitted,
+    /// and the new host never appeared in the list on next refresh.
     fn persist_sshc_conf(&self) -> Result<(), AppError> {
-        // sshc_conf_path() only returns None when the home directory cannot
-        // be resolved. Report that explicitly rather than disguising it as
-        // a lock-contention failure.
-        let path =
-            crate::storage::sshc_conf_path().ok_or(AppError::Setup(SetupError::HomeDirMissing))?;
+        let path = self
+            .sshc_conf_path
+            .clone()
+            .ok_or(AppError::Setup(SetupError::HomeDirMissing))?;
         let owned_hosts: Vec<Host> = self
             .hosts
             .iter()
