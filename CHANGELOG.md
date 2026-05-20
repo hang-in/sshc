@@ -8,6 +8,34 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.4.3] — 2026-05-20
+
+Refactor + small fixes pass before v0.5 starts adding new features. No
+behaviour change for the user; internals only.
+
+### Changed
+
+- **`apply_filter` extracted into `src/app/filter.rs`** as the first
+  step of breaking `src/app.rs` (~944 LOC) into thematic sub-modules.
+  Full split (input.rs + forms.rs) is planned for v0.5.0 under a
+  proper BRIEF/PLAN since the visibility surgery is non-trivial. For
+  v0.4.3 only the filter logic moves — `src/app/mod.rs` shrinks
+  slightly and `filter.rs` declares a single `impl super::App` block
+  with the relocated method.
+- **`sshc_conf_path` now cached on `App`** (`Option<PathBuf>`)
+  instead of called via the throwaway associated helper. The
+  previous `unwrap_or_default()` produced an empty `PathBuf` sentinel
+  when home-dir resolution failed; in that edge case any host whose
+  `source_file` also happened to be empty would have falsely matched
+  as "sshc.conf-managed". The new cache is `None` in that scenario
+  and the comparison helper documents the intended semantics.
+  (Reviewer: gemini-code-assist + deepseek-v4-pro@ollama-cloud.)
+
+### Internal
+
+- `cargo-dist` publish-homebrew-formula now self-serves with
+  `HOMEBREW_TAP_TOKEN` configured (v0.4.2 needed a manual tap push).
+
 ## [0.4.2] — 2026-05-20
 
 ### Added

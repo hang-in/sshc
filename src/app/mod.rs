@@ -1,3 +1,5 @@
+mod filter;
+
 use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::config::model::Host;
@@ -48,6 +50,13 @@ pub struct App {
     pub probe_states: Vec<ProbeState>,
     pub state: AppState,
     pub probe_generation: u64,
+    /// Cached `~/.ssh/config.d/sshc.conf` path. `None` when the home
+    /// directory can't be resolved — in that case every host is treated as
+    /// "external" (read-only via the TUI), which is correct: we have
+    /// nowhere to persist new entries. (Pre-cache version used
+    /// `unwrap_or_default()` which produced an empty PathBuf, accidentally
+    /// matching hosts whose source_file resolution had also failed.)
+    pub(super) sshc_conf_path: Option<std::path::PathBuf>,
     pending_action: Option<AppAction>,
     active_form_context: Option<FormContext>,
     matcher: nucleo::Matcher,
@@ -75,6 +84,7 @@ impl App {
             probe_states,
             state,
             probe_generation: 0,
+            sshc_conf_path: crate::storage::sshc_conf_path(),
             pending_action: None,
             active_form_context: None,
             matcher: nucleo::Matcher::new(nucleo::Config::DEFAULT),
@@ -256,7 +266,7 @@ impl App {
         let Some(host) = self.selected_host().cloned() else {
             return;
         };
-        if host.source_file != Self::sshc_conf_path_or_blank() {
+        if host.source_file != self.sshc_conf_path_or_blank() {
             self.status_message = Some(StatusMessage::new(
                 "this host lives outside sshc.conf; press 'e' to edit source",
             ));
@@ -293,7 +303,7 @@ impl App {
         let Some(host) = self.selected_host().cloned() else {
             return;
         };
-        if host.source_file != Self::sshc_conf_path_or_blank() {
+        if host.source_file != self.sshc_conf_path_or_blank() {
             self.status_message = Some(StatusMessage::new(
                 "tags can only be edited on sshc.conf hosts",
             ));
@@ -315,7 +325,7 @@ impl App {
         let Some(host) = self.selected_host().cloned() else {
             return;
         };
-        if host.source_file != Self::sshc_conf_path_or_blank() {
+        if host.source_file != self.sshc_conf_path_or_blank() {
             self.status_message = Some(StatusMessage::new("can only delete sshc.conf hosts"));
             return;
         }
@@ -346,7 +356,7 @@ impl App {
         }
         let host_is_managed = self
             .selected_host()
-            .map(|h| h.source_file == Self::sshc_conf_path_or_blank())
+            .map(|h| h.source_file == self.sshc_conf_path_or_blank())
             .unwrap_or(false);
         if host_is_managed {
             self.open_modify_form();
@@ -467,50 +477,7 @@ impl App {
         }
     }
 
-    fn apply_filter(&mut self) {
-        let query = self.filter_query.clone();
-
-        if let Some(tag_query) = query.strip_prefix('@') {
-            let needle = tag_query.trim().to_lowercase();
-            self.filtered = self
-                .hosts
-                .iter()
-                .enumerate()
-                .filter(|(_, h)| {
-                    if needle.is_empty() {
-                        !h.tags.is_empty()
-                    } else {
-                        h.tags.iter().any(|t| t.contains(&needle))
-                    }
-                })
-                .map(|(i, _)| i)
-                .collect();
-        } else {
-            let needle = query.to_lowercase();
-            let mut scored: Vec<(usize, u32)> = self
-                .hosts
-                .iter()
-                .enumerate()
-                .filter_map(|(i, host)| {
-                    let score = host.fuzzy_score(&query, &mut self.matcher);
-                    let tag_match =
-                        !needle.is_empty() && host.tags.iter().any(|t| t.contains(&needle));
-                    let best = if tag_match { score.max(1) } else { score };
-                    if best > 0 {
-                        Some((i, best))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            scored.sort_by(|a, b| b.1.cmp(&a.1));
-            self.filtered = scored.into_iter().map(|(i, _)| i).collect();
-        }
-
-        if self.selected >= self.filtered.len() && !self.filtered.is_empty() {
-            self.selected = self.filtered.len() - 1;
-        }
-    }
+    // apply_filter lives in `filter.rs`.
 
     pub fn next(&mut self) {
         if !self.filtered.is_empty() {
@@ -556,8 +523,14 @@ impl App {
         self.state.setup.declined_include_injection
     }
 
-    fn sshc_conf_path_or_blank() -> std::path::PathBuf {
-        crate::storage::sshc_conf_path().unwrap_or_default()
+    /// Cached sshc.conf path, or an empty `PathBuf` sentinel when the home
+    /// directory couldn't be resolved at App construction. The sentinel
+    /// never matches a parser-emitted `source_file`, so the comparison
+    /// `host.source_file == self.sshc_conf_path_or_blank()` is correct
+    /// (treats every host as external, which is the safe default when we
+    /// have nowhere to persist new entries).
+    pub(super) fn sshc_conf_path_or_blank(&self) -> std::path::PathBuf {
+        self.sshc_conf_path.clone().unwrap_or_default()
     }
 
     /// Apply an add-host form submission: append to in-memory hosts and
@@ -565,7 +538,7 @@ impl App {
     fn apply_add(&mut self, payload: &FormPayload) -> Result<(), AppError> {
         // The caller (apply_form) already matched FormPayload::Host before
         // routing here, so host_from_payload always returns Some.
-        let host = host_from_payload(payload, &Self::sshc_conf_path_or_blank())
+        let host = host_from_payload(payload, &self.sshc_conf_path_or_blank())
             .expect("apply_form routes Host payloads to apply_add");
         if self.hosts.iter().any(|h| h.alias == host.alias) {
             self.status_message = Some(StatusMessage::new(format!(
@@ -583,7 +556,7 @@ impl App {
 
     fn apply_modify(&mut self, alias: &str, payload: &FormPayload) -> Result<(), AppError> {
         // Caller already matched FormPayload::Host (see apply_add note).
-        let new_host = host_from_payload(payload, &Self::sshc_conf_path_or_blank())
+        let new_host = host_from_payload(payload, &self.sshc_conf_path_or_blank())
             .expect("apply_form routes Host payloads to apply_modify");
         if let Some(pos) = self.hosts.iter().position(|h| h.alias == alias) {
             self.hosts[pos] = new_host;
@@ -790,7 +763,7 @@ mod tests {
     #[test]
     fn test_app_enter_on_managed_host_opens_form() {
         let mut h = make_host("managed");
-        h.source_file = App::sshc_conf_path_or_blank();
+        h.source_file = crate::storage::sshc_conf_path().unwrap_or_default();
         let mut app = App::new(vec![h]);
         app.handle_key(KeyEvent::from(KeyCode::Enter));
         // Enter should open the modify form (Modal::Form). No pending action.
@@ -802,7 +775,7 @@ mod tests {
     fn test_app_m_key_unbound() {
         // 'm' is no longer a manage-mode shortcut (merged into Enter).
         let mut h = make_host("managed");
-        h.source_file = App::sshc_conf_path_or_blank();
+        h.source_file = crate::storage::sshc_conf_path().unwrap_or_default();
         let mut app = App::new(vec![h]);
         app.handle_key(KeyEvent::from(KeyCode::Char('m')));
         assert!(matches!(app.mode, AppMode::List));
