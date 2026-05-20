@@ -98,6 +98,26 @@ pub fn inline(viewport_height: u16) -> Result<ExitCode, AppError> {
     }
 }
 
+/// v0.5 direct-connect mode: skip the TUI entirely, look up `alias` in
+/// the parsed config, and run `ssh <alias>` in the inherited terminal.
+/// Designed for shell aliases / scripts (e.g. `sshc prod-db`).
+///
+/// Updates `state.last_connected_alias` on a launch attempt regardless of
+/// the ssh exit status, matching the inline/manage behaviour. Returns
+/// `FAILURE` when the alias is unknown without invoking ssh.
+pub fn direct(alias: &str) -> Result<ExitCode, AppError> {
+    let mut app_state = state::load().unwrap_or_default();
+    let hosts = parse_config(&config_path());
+    if !hosts.iter().any(|h| h.alias == alias) {
+        eprintln!("sshc: unknown host alias '{alias}'");
+        return Ok(ExitCode::FAILURE);
+    }
+    let result = crate::exec::ssh::ssh_run(alias, "ssh")?;
+    app_state.memory.last_connected_alias = Some(alias.to_string());
+    let _ = state::save(&app_state);
+    Ok(exit_code_from(result))
+}
+
 /// v0.3 manage mode: full alternate-screen TUI with CRUD, tags, probes,
 /// first-run setup, and modal subsystem. Returns ExitCode::SUCCESS on
 /// graceful quit.
