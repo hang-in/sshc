@@ -4,23 +4,30 @@ pub mod list;
 pub mod modal;
 pub mod status_bar;
 
-use ratatui::layout::Alignment;
+use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use crate::app::App;
 use crate::ui::layout::{
-    centered_rect, host_panel_layout, MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH,
+    host_panel_layout, ColumnVisibility, MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH,
 };
 
-/// Centered panel size as a percentage of the full terminal area.
-const PANEL_WIDTH_PCT: u16 = 70;
-const PANEL_HEIGHT_PCT: u16 = 80;
+/// Minimum and maximum sizes for the dynamically-sized centered panel.
+const MIN_PANEL_WIDTH: u16 = 50;
+const MIN_PANEL_HEIGHT: u16 = 10;
+const MAX_PANEL_WIDTH: u16 = 110;
+const MAX_PANEL_HEIGHT: u16 = 32;
+/// Bottom-status row + header row + 2 cells of border.
+const PANEL_CHROME_HEIGHT: u16 = 4;
+/// Border + 1 cell padding on each side.
+const PANEL_CHROME_WIDTH: u16 = 2;
 
-/// Renders the entire TUI. Layout: a centered panel inside a 1-cell border
-/// block, 5-column host table (columns hide on narrow widths), bottom status
-/// row. When the terminal is below the minimum size, prints a notice.
+/// Renders the entire TUI. Panel is centered and sized to the data:
+/// width matches the widest row content (clamped to MIN/MAX), height
+/// matches the host count (also clamped). Falls back to a "too small"
+/// notice if the terminal is below MIN_TERMINAL_*.
 pub fn render(f: &mut Frame, app: &App) {
     let size = f.area();
 
@@ -34,7 +41,29 @@ pub fn render(f: &mut Frame, app: &App) {
         return;
     }
 
-    let panel = centered_rect(size, PANEL_WIDTH_PCT, PANEL_HEIGHT_PCT);
+    let fallback_user = list::fallback_user();
+    let widths = list::compute_column_widths(app, &fallback_user);
+
+    // Decide visibility based on the *available* width: if the terminal is
+    // wide enough to fit every column, show them all; otherwise hide
+    // priority-by-priority.
+    let available_inner = size.width.saturating_sub(PANEL_CHROME_WIDTH);
+    let visibility = ColumnVisibility::for_width(available_inner);
+
+    // Compute the desired panel size from the data.
+    let desired_width = widths.total_with_pad(&visibility) + PANEL_CHROME_WIDTH;
+    let desired_height = (app.host_count() as u16).saturating_add(PANEL_CHROME_HEIGHT);
+
+    let panel_width = desired_width
+        .clamp(MIN_PANEL_WIDTH, MAX_PANEL_WIDTH)
+        .min(size.width);
+    let panel_height = desired_height
+        .clamp(MIN_PANEL_HEIGHT, MAX_PANEL_HEIGHT)
+        .min(size.height);
+
+    let panel_x = size.x + (size.width.saturating_sub(panel_width)) / 2;
+    let panel_y = size.y + (size.height.saturating_sub(panel_height)) / 2;
+    let panel = Rect::new(panel_x, panel_y, panel_width, panel_height);
 
     let outer = Block::default()
         .borders(Borders::ALL)

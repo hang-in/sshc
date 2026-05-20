@@ -7,14 +7,49 @@ use ratatui::widgets::{Cell, Row, Table, TableState};
 use crate::app::App;
 use crate::config::model::Host;
 use crate::probe::ProbeState;
-use crate::ui::layout::{host_table_constraints, ColumnVisibility};
+use crate::ui::layout::{host_table_constraints_for, ColumnVisibility, ColumnWidths};
+
+/// Scan the filtered hosts once and return the per-column max widths.
+pub fn compute_column_widths(app: &App, fallback_user: &str) -> ColumnWidths {
+    let mut widths = ColumnWidths::header_baseline();
+    for &idx in &app.filtered {
+        let host = &app.hosts[idx];
+        let tag_prefix_len = if host.tags.is_empty() {
+            0
+        } else {
+            let joined: usize = host.tags.iter().map(|t| t.len()).sum::<usize>()
+                + host.tags.len().saturating_sub(1);
+            joined + 3
+        };
+        let alias_len = host.alias.chars().count() + tag_prefix_len;
+        let account_len = match host.user.as_deref() {
+            Some(u) if !u.is_empty() => u.chars().count(),
+            _ => fallback_user.chars().count(),
+        };
+        let host_len = host
+            .hostname
+            .as_deref()
+            .map(|s| s.chars().count())
+            .unwrap_or(1);
+        let port_len = host.port.map(|p| p.to_string().len()).unwrap_or(0);
+        widths.extend_with(alias_len, account_len, host_len, port_len);
+    }
+    widths
+}
+
+/// Resolve the `$USER` value used as the dim Account-cell fallback. Centralised
+/// so the renderer and the panel-size calculator agree on the same string.
+pub fn fallback_user() -> String {
+    std::env::var("USER").unwrap_or_else(|_| "?".to_string())
+}
 
 /// Build the host table widget + selection state for the current terminal
 /// width. The width drives column visibility (BRIEF_V3 §5 Q6 priority).
 pub fn create_host_table<'a>(app: &'a App, width: u16) -> (Table<'a>, TableState) {
     let visibility = ColumnVisibility::for_width(width);
     let sshs_conf = crate::storage::sshs_conf_path();
-    let fallback_user = std::env::var("USER").unwrap_or_else(|_| "?".to_string());
+    let fallback_user = fallback_user();
+    let widths = compute_column_widths(app, &fallback_user);
 
     let rows: Vec<Row<'a>> = app
         .filtered
@@ -37,7 +72,7 @@ pub fn create_host_table<'a>(app: &'a App, width: u16) -> (Table<'a>, TableState
         })
         .collect();
 
-    let constraints = host_table_constraints(&visibility);
+    let constraints = host_table_constraints_for(&widths, &visibility);
     let table = Table::new(rows, constraints).header(header_row(&visibility));
 
     let mut state = TableState::default();
@@ -59,6 +94,7 @@ fn header_row(visibility: &ColumnVisibility) -> Row<'static> {
     if visibility.show_port {
         cells.push(Cell::from("Port"));
     }
+    cells.push(Cell::from("")); // spacer
     cells.push(Cell::from("St"));
     Row::new(cells).style(Style::default().add_modifier(Modifier::BOLD))
 }
@@ -87,6 +123,7 @@ fn host_row<'a>(
         cells.push(Cell::from(port_str));
     }
 
+    cells.push(Cell::from("")); // spacer
     cells.push(status_cell(host, app, sshs_conf, probe));
 
     Row::new(cells)
