@@ -329,6 +329,107 @@ fn short_path(p: &Path) -> String {
     }
 }
 
+/// v0.8 G3: ask GitHub if there's a newer release. *Only* fires during
+/// `sshc --doctor` — every other code path leaves the network alone
+/// (anti-feature 4: no always-on / background calls). One sync HTTP
+/// call with a 5-second total budget.
+fn check_latest_version() -> Check {
+    const NAME: &str = "update";
+    const URL: &str = "https://api.github.com/repos/hang-in/sshc/releases/latest";
+    const RELEASES_PAGE: &str = "https://github.com/hang-in/sshc/releases/latest";
+    let current = env!("CARGO_PKG_VERSION");
+
+    if std::env::var("SSHC_NO_UPDATE_CHECK").is_ok() {
+        return Check {
+            name: NAME,
+            status: Status::Pass,
+            detail: format!("{current} (update check skipped: SSHC_NO_UPDATE_CHECK)"),
+        };
+    }
+
+    // ureq 2.10's per-call `.timeout()` covers both connect and read.
+    let user_agent = format!("sshc/{current}");
+    let body = match ureq::get(URL)
+        .set("User-Agent", &user_agent)
+        .timeout(std::time::Duration::from_secs(5))
+        .call()
+    {
+        Ok(resp) => match resp.into_string() {
+            Ok(s) => s,
+            Err(_) => {
+                return Check {
+                    name: NAME,
+                    status: Status::Warn,
+                    detail: "could not read GitHub response body".into(),
+                };
+            }
+        },
+        Err(_) => {
+            return Check {
+                name: NAME,
+                status: Status::Warn,
+                detail: "could not reach github (offline?)".into(),
+            };
+        }
+    };
+    let Some(tag) = extract_tag_name(&body) else {
+        return Check {
+            name: NAME,
+            status: Status::Warn,
+            detail: "unexpected response from GitHub releases".into(),
+        };
+    };
+    let latest = tag.strip_prefix('v').unwrap_or(tag);
+    match compare_versions(current, latest) {
+        std::cmp::Ordering::Equal => Check {
+            name: NAME,
+            status: Status::Pass,
+            detail: format!("{current} (latest)"),
+        },
+        std::cmp::Ordering::Greater => Check {
+            name: NAME,
+            status: Status::Pass,
+            detail: format!("{current} (ahead of latest {latest})"),
+        },
+        std::cmp::Ordering::Less => Check {
+            name: NAME,
+            status: Status::Warn,
+            detail: format!("{current} (latest is {latest} — see {RELEASES_PAGE})"),
+        },
+    }
+}
+
+/// Extract `tag_name` from a GitHub `/releases/latest` response body.
+/// Treats the value as opaque text — no JSON parser. The substring
+/// pattern is robust because the field appears once per response and
+/// GitHub formats it consistently.
+fn extract_tag_name(body: &str) -> Option<&str> {
+    let key = "\"tag_name\"";
+    let after_key = body.find(key)?;
+    let rest = &body[after_key + key.len()..];
+    let colon = rest.find(':')?;
+    let after_colon = &rest[colon + 1..];
+    let open = after_colon.find('"')?;
+    let value_start = open + 1;
+    let value_rel = &after_colon[value_start..];
+    let close = value_rel.find('"')?;
+    Some(&value_rel[..close])
+}
+
+/// Compare two dot-triple SemVer-ish versions (no pre-release / build
+/// metadata support — sshc only ships `x.y.z` releases today). Falls
+/// back to `Equal` for malformed input rather than failing the check.
+fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
+    let parse = |s: &str| -> [u32; 3] {
+        let mut out = [0u32; 3];
+        for (i, part) in s.split('.').take(3).enumerate() {
+            out[i] = part.parse().unwrap_or(0);
+        }
+        out
+    };
+    parse(a).cmp(&parse(b))
+}
+
 /// Run all checks, print the report, and return an `ExitCode` reflecting
 /// the worst status seen (`FAIL` → `FAILURE`, anything else → `SUCCESS`).
 pub fn run() -> ExitCode {
@@ -339,6 +440,7 @@ pub fn run() -> ExitCode {
         check_include_line(),
         check_ssh_binary(),
         check_ssh_auth_sock(),
+        check_latest_version(),
     ];
 
     let max_name = checks.iter().map(|c| c.name.len()).max().unwrap_or(0);
@@ -371,5 +473,50 @@ pub fn run() -> ExitCode {
     } else {
         println!("Result: OK — all checks passed.");
         ExitCode::SUCCESS
+    }
+}
+
+#[cfg(test)]
+mod update_check_tests {
+    use super::{compare_versions, extract_tag_name};
+    use std::cmp::Ordering;
+
+    #[test]
+    fn compare_versions_equal() {
+        assert_eq!(compare_versions("0.8.0", "0.8.0"), Ordering::Equal);
+    }
+
+    #[test]
+    fn compare_versions_current_behind_latest() {
+        // doctor must surface this as a WARN.
+        assert_eq!(compare_versions("0.7.3", "0.8.0"), Ordering::Less);
+    }
+
+    #[test]
+    fn compare_versions_current_ahead_of_latest() {
+        // Dev builds (`cargo install --path .` from a working tree
+        // that bumped Cargo.toml past the latest tag) should not nag.
+        assert_eq!(compare_versions("0.9.0", "0.8.0"), Ordering::Greater);
+        assert_eq!(compare_versions("1.0.0", "0.99.99"), Ordering::Greater);
+    }
+
+    #[test]
+    fn extract_tag_name_typical_github_payload() {
+        // Trimmed to just the fields we care about; real responses
+        // carry ~30 more keys but the substring pattern is robust.
+        let body = r#"{
+            "url": "https://api.github.com/repos/hang-in/sshc/releases/...",
+            "tag_name": "v0.7.3",
+            "name": "0.7.3 — 2026-05-20"
+        }"#;
+        assert_eq!(extract_tag_name(body), Some("v0.7.3"));
+    }
+
+    #[test]
+    fn extract_tag_name_malformed_returns_none() {
+        // No `tag_name` at all → None → check_latest_version surfaces
+        // the "unexpected response" WARN.
+        let body = r#"{"message": "Not Found"}"#;
+        assert!(extract_tag_name(body).is_none());
     }
 }
