@@ -8,6 +8,39 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.7.1] — 2026-05-20
+
+Bug-fix / UX patch over v0.7.0 — no new features, no breaking changes.
+
+### Fixed
+
+- **Manage-mode `i` reports added vs already-present.** v0.7.0 always
+  said `Include added to ~/.ssh/config` even when the line was
+  already there. Now `inject_include` returns `Result<bool, …>` and
+  the status bar picks between
+  `Include line added to ~/.ssh/config — writes enabled` and
+  `Include line already present — writes already enabled`.
+- **Add-host form layout no longer collapses on narrow modals.**
+  The previous 2-rows-per-field layout (label above, value below)
+  silently shrank trailing fields to zero rows when the 70%-height
+  modal area was smaller than 14 lines — making them invisible while
+  still accepting input. Re-laid out to one row per field with a
+  fixed 14-cell label column and the value `[…]` beside it.
+
+### Added
+
+- **IdentityFile ↑/↓ picker.** When the IdentityFile field is
+  active and `~/.ssh/` contains candidate private-key files (`*.pub`,
+  `known_hosts*`, `authorized_keys`, `config*`, `environment` and
+  hidden entries excluded), pressing `↑` or `↓` cycles through them.
+  Direct typing still works for custom paths. The footer hint switches
+  to `↑/↓ pick from N key(s) in ~/.ssh • Tab move • …` on that field.
+- **IdentityFile-empty status hint.** Saving a host without an
+  IdentityFile is allowed (matches OpenSSH's own "fall through to
+  agent / password prompt" behavior) but the status bar now flashes
+  `'<alias>' saved without IdentityFile — ssh will use agent or
+  password prompt` so it isn't a silent decision.
+
 ## [0.7.0] — 2026-05-20
 
 Platform expansion: native Windows support. No new features for
