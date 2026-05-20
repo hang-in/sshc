@@ -120,6 +120,24 @@ cargo install --path .
 
 Rust 1.85 이상 툴체인이 필요합니다.
 
+### Windows (WSL2 환경)
+
+Windows 네이티브 빌드는 따로 배포하지 않습니다. sshc는 Unix 파일
+권한(0600/0700)과 `flock` 동시성 보장에 의존하는데, 윈도우에서
+이걸 흉내내면서 "작은 homelab cockpit" 포지셔닝을 지키긴 어려워서
+의도적으로 빼 두었습니다.
+
+대신 WSL2 안에서 그대로 쓰면 됩니다. WSL2는 진짜 Linux 환경이라
+위의 설치 방법이 그대로 통합니다. SSH 키와 ssh-agent는 Windows
+호스트 쪽이 아니라 WSL 배포판 쪽 것을 쓰는 편이 매끄럽습니다.
+
+```sh
+# WSL2 안에서 (Ubuntu / Debian 등)
+cargo install --git https://github.com/hang-in/sshc --tag v0.6.0
+# 또는 Linuxbrew가 깔려 있다면
+brew install hang-in/tap/sshc
+```
+
 ## 설정과 파일
 
 sshc는 사용자가 손으로 쓴 `~/.ssh/config`는 절대 건드리지 않는 것을

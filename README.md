@@ -119,6 +119,24 @@ cargo install --path .
 
 Requires Rust 1.85+.
 
+### Windows (via WSL2)
+
+Native Windows builds aren't shipped — sshc relies on Unix
+file-permission semantics (0600/0700) and `flock`, and supporting
+both worlds well would dilute the "small homelab cockpit" focus.
+
+Run it inside WSL2 instead. WSL2 is a real Linux environment, so
+the install paths above work unchanged. Point your WSL distribution
+at the SSH agent and key files you actually use, and prefer the
+WSL-side `ssh-agent` over the Windows host's.
+
+```sh
+# inside WSL2 (Ubuntu / Debian / etc.)
+cargo install --git https://github.com/hang-in/sshc --tag v0.6.0
+# or, with Linuxbrew set up
+brew install hang-in/tap/sshc
+```
+
 ## Configuration
 
 sshc never edits your hand-written `~/.ssh/config` beyond a single
