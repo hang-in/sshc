@@ -144,10 +144,21 @@ impl HostForm {
         }
 
         let id_file = self.fields[4].trim();
-        let forbidden = [
-            ';', '|', '&', '$', '`', '<', '>', '(', ')', '{', '}', '*', '?', '[', ']', '"', '\'',
-            '\\',
-        ];
+        // '\\' is a path separator on Windows (e.g. C:\Users\me\.ssh\id_ed25519),
+        // so it cannot be on the forbidden list there. Unix keeps it forbidden
+        // because backslash has no place in a POSIX path and would only show up
+        // as a shell escape attempt.
+        let forbidden: &[char] = if cfg!(windows) {
+            &[
+                ';', '|', '&', '$', '`', '<', '>', '(', ')', '{', '}', '*', '?', '[', ']', '"',
+                '\'',
+            ]
+        } else {
+            &[
+                ';', '|', '&', '$', '`', '<', '>', '(', ')', '{', '}', '*', '?', '[', ']', '"',
+                '\'', '\\',
+            ]
+        };
         if id_file.chars().any(|c| forbidden.contains(&c)) {
             return Err("IdentityFile contains forbidden shell characters".to_string());
         }

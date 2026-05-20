@@ -106,7 +106,7 @@ brew install hang-in/tap/sshc
 ### Cargo from git
 
 ```sh
-cargo install --git https://github.com/hang-in/sshc --tag v0.7.1
+cargo install --git https://github.com/hang-in/sshc --tag v0.7.2
 ```
 
 ### From source

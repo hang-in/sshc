@@ -8,6 +8,23 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.7.2] — 2026-05-20
+
+Windows hotfix over v0.7.1 — no new features, no behavior change on
+Unix.
+
+### Fixed
+
+- **IdentityFile field rejected Windows paths.** The add/modify host
+  form's IdentityFile validator treated `\` as a forbidden shell
+  metacharacter on every platform, so saving a host with an
+  IdentityFile like `C:\Users\me\.ssh\id_ed25519` failed on Windows
+  with `IdentityFile contains forbidden shell characters`. The
+  forbidden-character list is now cfg-split: Windows keeps the 17
+  shell metacharacters (`;`, `|`, `&`, `$`, …) but allows `\` as a
+  path separator. Unix behavior is unchanged — `\` stays forbidden
+  there since POSIX paths never need it.
+
 ## [0.7.1] — 2026-05-20
 
 Bug-fix / UX patch over v0.7.0 — no new features, no breaking changes.
