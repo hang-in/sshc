@@ -103,7 +103,7 @@ impl App {
     }
 
     pub(super) fn open_help_modal(&mut self) {
-        let msg = "j/k nav  / filter  Enter open  s ssh  f pin\n\
+        let msg = "j/k nav  / filter  Enter open  s ssh  f pin  v validate\n\
                    a add  d delete  t tags  e edit  i include  ? help  q quit"
             .to_string();
         self.mode = super::AppMode::Modal(ModalKind::Info {
@@ -219,6 +219,7 @@ impl App {
         self.probe_states.push(ProbeState::Unknown);
         self.persist_sshc_conf()?;
         self.apply_filter();
+        self.validation_cache.clear();
         Ok(())
     }
 
@@ -227,6 +228,7 @@ impl App {
             self.hosts[pos] = new_host;
             self.persist_sshc_conf()?;
             self.apply_filter();
+            self.validation_cache.clear();
         }
         Ok(())
     }
@@ -241,6 +243,7 @@ impl App {
                 self.status_message = Some(StatusMessage::new(format!("delete failed: {e}")));
             } else {
                 self.apply_filter();
+                self.validation_cache.clear();
                 self.pending_action = Some(AppAction::SaveState);
             }
         }
@@ -252,6 +255,7 @@ impl App {
             host.tags = normalized;
             self.persist_sshc_conf()?;
             self.apply_filter();
+            self.validation_cache.clear();
         }
         Ok(())
     }

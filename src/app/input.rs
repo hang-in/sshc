@@ -76,6 +76,7 @@ impl App {
                 KeyCode::Char('d') => self.open_delete_confirm(),
                 KeyCode::Char('f') => self.toggle_selected_favorite(),
                 KeyCode::Char('t') => self.open_tag_form(),
+                KeyCode::Char('v') => self.validate_selected(),
                 KeyCode::Char('i') => {
                     // Force-retry the Include injection. Useful when the user
                     // declined first-run setup and now wants to enable writes,

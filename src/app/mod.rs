@@ -55,6 +55,10 @@ pub struct App {
     /// `unwrap_or_default()` which produced an empty PathBuf, accidentally
     /// matching hosts whose source_file resolution had also failed.)
     pub(super) sshc_conf_path: Option<std::path::PathBuf>,
+    /// v0.6: session-only cache of `ssh -G <alias>` output, keyed by
+    /// alias. Cleared on any apply_form / apply_delete / apply_tags
+    /// success so we never show stale resolution after edits.
+    pub(super) validation_cache: std::collections::HashMap<String, String>,
     pending_action: Option<AppAction>,
     active_form_context: Option<FormContext>,
     matcher: nucleo::Matcher,
@@ -90,6 +94,7 @@ impl App {
             state,
             probe_generation: 0,
             sshc_conf_path: crate::storage::sshc_conf_path(),
+            validation_cache: std::collections::HashMap::new(),
             pending_action: None,
             active_form_context: None,
             matcher: nucleo::Matcher::new(nucleo::Config::DEFAULT),
@@ -241,6 +246,36 @@ impl App {
     /// Returns true when `alias` is in `state.memory.favorites`.
     pub fn is_favorite(&self, alias: &str) -> bool {
         self.state.memory.favorites.iter().any(|a| a == alias)
+    }
+
+    /// Run `ssh -G <selected_alias>` (cached per session) and open the
+    /// resolved config in an Info modal. No network I/O — `ssh -G` only
+    /// parses local config. Errors land in the status bar; nothing
+    /// blocks the user from continuing.
+    pub(super) fn validate_selected(&mut self) {
+        let Some(alias) = self.selected_host().map(|h| h.alias.clone()) else {
+            return;
+        };
+        let output = if let Some(cached) = self.validation_cache.get(&alias) {
+            cached.clone()
+        } else {
+            self.status_message = Some(StatusMessage::new(format!("Validating {alias}…")));
+            match crate::exec::ssh_config::validate_alias(&alias) {
+                Ok(out) => {
+                    self.validation_cache.insert(alias.clone(), out.clone());
+                    out
+                }
+                Err(e) => {
+                    self.status_message = Some(StatusMessage::new(format!("ssh -G failed: {e}")));
+                    return;
+                }
+            }
+        };
+        self.status_message = None;
+        self.mode = AppMode::Modal(ModalKind::Info {
+            message: format!("ssh -G {alias}\n\n{output}"),
+            dismiss: crate::ui::modal::ModalAction::None,
+        });
     }
 
     /// Toggle a host's pinned status. Returns `true` if the host is now
