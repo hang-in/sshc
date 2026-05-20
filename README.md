@@ -46,7 +46,7 @@ TUI and `ssh`s straight in — handy for shell aliases and scripts.
 | `sshc` | Inline | Key-driven host picker → ssh → back to shell. No alternate-screen takeover. |
 | `sshc <alias>` | Direct | Skip the picker, look up `<alias>` in your config, `ssh` immediately. Unknown alias → exit 1. |
 | `sshc -m` | Manage | Full TUI: add/edit/delete hosts, tags, probe glyphs, `$EDITOR` jump. |
-| `sshc --doctor` | Doctor | Read-only environment report (`~/.ssh`, sshc.conf, Include line, `ssh` binary, `SSH_AUTH_SOCK`). Exits non-zero only on `FAIL`. |
+| `sshc --doctor` | Doctor | Read-only environment report (`~/.ssh`, sshc.conf, Include line, `ssh` binary, `SSH_AUTH_SOCK` / Windows agent pipes, latest release availability). Exits non-zero only on `FAIL`. Set `SSHC_NO_UPDATE_CHECK=1` to skip the network call. |
 
 Inline mode never leaves your scrollback view. Manage mode opens the
 classic full-screen TUI behind a flag because that's the right surface
@@ -86,6 +86,7 @@ connected hosts float to the top of the list, so the common case is
 | f | toggle favorite / pin (★) |
 | v | `ssh -G <alias>` validation modal |
 | e | open `$EDITOR` at the host's line |
+| M | promote external host into `sshc.conf` (original `~/.ssh/config` entry left intact — delete manually if you don't want duplicate `ssh -G` matches) |
 | i | inject `Include` line into `~/.ssh/config` |
 | ? | help modal |
 | q, Esc | quit / cancel |
@@ -106,7 +107,7 @@ brew install hang-in/tap/sshc
 ### Cargo from git
 
 ```sh
-cargo install --git https://github.com/hang-in/sshc --tag v0.7.3
+cargo install --git https://github.com/hang-in/sshc --tag v0.8.0
 ```
 
 ### From source

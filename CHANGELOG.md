@@ -8,6 +8,101 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.8.0] — 2026-05-20
+
+Feature round on top of the v0.7-series Windows platform work. Three
+user-visible additions and a handful of internal hygiene fixes.
+
+### Added
+
+- **Windows agent named-pipe detection** (`sshc --doctor`). v0.7
+  reported `SSH_AUTH_SOCK   PASS  Windows: not applicable` regardless
+  of whether the user had an agent reachable. v0.8 actually probes
+  `\\.\pipe\openssh-ssh-agent` and `\\.\pipe\pageant` with
+  `CreateFileW(OPEN_EXISTING)`. Either pipe present → `PASS` with the
+  detected pipe name in the detail; both → merged `PASS`; neither →
+  `WARN  no agent pipe found — start Windows OpenSSH agent
+  (Start-Service ssh-agent) or run Pageant`. Presence only — no
+  identity enumeration (anti-features 1 + 2).
+- **Manage-mode `M` promotes an external host into `sshc.conf`.**
+  Selecting an entry that lives in `~/.ssh/config` (or one of its
+  `Include` files) and pressing `M` opens the add/modify form
+  pre-filled with that host's fields; saving writes a brand-new
+  entry into `sshc.conf`. The original `~/.ssh/config` line is
+  **never** touched — anti-feature 1 stands. The status bar reminds
+  you to delete the original yourself if duplicate `ssh -G` matches
+  bother you. Wildcard aliases (`*`, `?`) and aliases that already
+  exist in `sshc.conf` are refused with explicit hints.
+- **Doctor update check** (`sshc --doctor` only). One GitHub API
+  call to `/repos/hang-in/sshc/releases/latest` with a 5 s timeout
+  surfaces a new seventh line:
+    - latest == current: `PASS  0.x.y (latest)`
+    - current ahead of latest (dev build): `PASS  0.x.y (ahead of
+      latest 0.a.b)`
+    - current behind latest: `WARN  0.x.y (latest is 0.a.b — see
+      <URL>)`
+    - network or parse failure: `WARN  could not reach github
+      (offline?)` / `WARN  unexpected response from GitHub releases`
+  No background calls — the daily `sshc` / `sshc -m` / `sshc <alias>`
+  paths never touch the network. Set `SSHC_NO_UPDATE_CHECK=1` to
+  skip the call entirely (closed networks, repeated automation runs).
+
+### Changed
+
+- **Footer hint becomes selection-aware.** The manage-mode footer's
+  second row swaps in `M promote` only when the selected host is
+  external, so managed-host workflows see no extra noise.
+- **`HostForm::new` / `HostForm::from_host` now take the identity-file
+  candidate list as an argument.** v0.7.1 added an IdentityFile ↑/↓
+  picker by calling `std::fs::read_dir` directly inside
+  `ui/forms/host_form.rs`, breaking R-G8 (UI layer must not touch the
+  filesystem). The scan moved to `app/forms.rs::discover_identity_files`
+  and is now passed in from the caller. `impl Default for HostForm`
+  is removed (no callers; `new` requires the candidate list).
+- **`.github/workflows/release.yml`** gains a workflow-level
+  `concurrency` block keyed on `github.ref`. v0.7.2 hit a race where
+  two Release workflow runs fired against the same tag and the slower
+  one died at `gh release create` with "release already exists". The
+  guard serializes per-tag without blocking parallel PR builds.
+
+### Dependencies
+
+- **`ureq 2.10`** added as an unconditional dependency for the doctor
+  update check. Default features (rustls + webpki-roots) so the
+  binary stays portable — no system OpenSSL / SChannel /
+  SecureTransport at install time. ureq's `native-tls` path was
+  tried first but ureq 2.12 doesn't pick up a TLS backend with that
+  combo alone; switching to default rustls lands a working call.
+- **`windows-sys`** picks up the `Win32_Security` feature so
+  `CreateFileW`'s `SECURITY_ATTRIBUTES` is re-exported.
+
+### Internal
+
+- All 175+ unit + integration tests still green. clippy host clean.
+- `cargo clippy --target x86_64-pc-windows-msvc` was passing on R0–R5;
+  the R6 ureq+rustls combo pulls in `ring`, whose `build.rs` needs
+  MSVC headers we can't supply from macOS host cross-compile. The
+  per-round local gate drops the cross-clippy step from R6 onward;
+  cargo-dist's actual Windows runner verifies the Windows build at
+  tag push time. PLAN_V0.8 §2 + §3 updated to match.
+- `main.rs` is still ≤ 10 LOC (R-G0). R-G1..R-G9 all PASS.
+
+### Size
+
+- macOS arm64 release: 3,150,128 → 5,246,752 bytes (+2.1 MB, +66%).
+  The cost is rustls + webpki-roots; absolute size (~5 MB) is well
+  within the distribution of comparable TUIs. Risks table flags a
+  v0.9 follow-up to evaluate `attohttpc` / `minreq` for size recovery.
+
+### Out of scope (deferred to v0.9+)
+
+- Windows ARM64 (`aarch64-pc-windows-msvc`).
+- Windows ACL enforcement of "private key files must be private".
+- Identity enumeration on a discovered agent (anti-features 1 + 2).
+- Automatic deletion of the original `~/.ssh/config` entry after `M
+  promote` (anti-feature 1).
+- Always-on update check / automatic update download (anti-feature 4).
+
 ## [0.7.3] — 2026-05-20
 
 Second Windows hotfix over v0.7.2 — `sshc.conf` writes are now

@@ -48,7 +48,7 @@ sshc
 | `sshc` | 인라인 | 셸 위에서 호스트 picker를 띄우고, 선택하면 ssh 접속한 뒤 다시 셸로 돌아옵니다. 화면이 전환되지 않습니다. |
 | `sshc <alias>` | 다이렉트 | picker를 건너뛰고 바로 `ssh <alias>`. 모르는 alias면 stderr에 안내 후 종료 코드 1. |
 | `sshc -m` | 관리 | 전체 화면 TUI. 호스트 추가/수정/삭제, 태그, 상태 확인, `$EDITOR`로 직접 편집까지. |
-| `sshc --doctor` | 진단 | 환경 점검만 (수정은 하지 않음): `~/.ssh` 권한, sshc.conf 존재, Include 줄, `ssh` 바이너리, `SSH_AUTH_SOCK`. 무언가 깨졌을 때만 비정상 종료. |
+| `sshc --doctor` | 진단 | 환경 점검만 (수정은 하지 않음): `~/.ssh` 권한, sshc.conf 존재, Include 줄, `ssh` 바이너리, `SSH_AUTH_SOCK`(Windows에서는 OpenSSH/Pageant named pipe), 최신 릴리스 확인. 무언가 깨졌을 때만 비정상 종료. 네트워크 호출이 싫으면 `SSHC_NO_UPDATE_CHECK=1`로 업데이트 점검만 건너뜁니다. |
 
 인라인 모드는 스크롤백을 건드리지 않고, 관리 모드는 편집에 어울리는
 전체 화면이라 따로 플래그를 둡니다.
@@ -87,6 +87,7 @@ sshc
 | f | 즐겨찾기(★) 토글 |
 | v | `ssh -G <alias>`로 해석된 설정 보기 |
 | e | 해당 호스트 줄에서 `$EDITOR` 열기 |
+| M | 외부(`~/.ssh/config`) 호스트를 `sshc.conf`로 끌어오기 (원본 엔트리는 그대로 두므로 중복 `ssh -G` 매치가 싫다면 사용자가 직접 삭제) |
 | i | `~/.ssh/config`에 Include 줄 주입 |
 | ? | 도움말 모달 |
 | q, Esc | 종료 / 취소 |
@@ -107,7 +108,7 @@ brew install hang-in/tap/sshc
 ### 소스에서 cargo install
 
 ```sh
-cargo install --git https://github.com/hang-in/sshc --tag v0.7.3
+cargo install --git https://github.com/hang-in/sshc --tag v0.8.0
 ```
 
 ### 소스 빌드
