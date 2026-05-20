@@ -66,10 +66,17 @@ where
 
     set_owner_only_perms(&tmp_path)?;
 
+    // Release the lock *before* renaming over the destination. On Windows
+    // MoveFileW (Rust's fs::rename) refuses to replace a path we ourselves
+    // hold open — the rename returns ERROR_SHARING_VIOLATION and the user
+    // sees their save silently fail. Unix doesn't care either way; closing
+    // the handle a few microseconds earlier is harmless. The lock has
+    // already done its job by the time we reach this point: the new
+    // content is fully written to tmp.
+    drop(file);
+
     fs::rename(&tmp_path, path).map_err(StorageError::RenameFailed)?;
 
-    // file goes out of scope here, releasing the lock.
-    drop(file);
     Ok(())
 }
 

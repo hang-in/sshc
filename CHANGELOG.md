@@ -8,6 +8,27 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.7.3] — 2026-05-20
+
+Second Windows hotfix over v0.7.2 — `sshc.conf` writes are now
+actually durable on Windows. No behavior change on Unix.
+
+### Fixed
+
+- **Manage-mode saves silently failed on Windows.** `storage::with_locked_write`
+  held the `sshc.conf` file handle open through the final
+  `fs::rename(tmp → sshc.conf)` step. On Unix that's fine — `rename(2)`
+  atomically replaces a destination even when the same process keeps
+  it open — but on Windows `MoveFileW` (which Rust's `fs::rename`
+  calls into) refuses to overwrite a path we ourselves hold open, so
+  it failed with `ERROR_SHARING_VIOLATION`. The rename now happens
+  after the lock handle is dropped; the new content is already fully
+  written to the tmp file at that point, so the durability and
+  atomicity guarantees are unchanged. Without this fix, every `Enter`
+  in the add/modify host form on Windows looked like it submitted but
+  left `sshc.conf` untouched (with an `sshc.conf.tmp.<pid>` orphan
+  next to it).
+
 ## [0.7.2] — 2026-05-20
 
 Windows hotfix over v0.7.1 — no new features, no behavior change on
