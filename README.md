@@ -2,146 +2,184 @@
 
 A TUI for browsing, connecting to, and managing SSH hosts defined in
 `~/.ssh/config` (and `~/.ssh/config.d/sshs.conf` for sshs-managed entries).
-~/.ssh/config 호스트를 탐색·연결·관리하는 TUI 애플리케이션.
+~/.ssh/config 호스트를 탐색·연결·관리하는 TUI.
 
-## Features / 기능
+## What's new in v0.4
 
-- **Browse**: list all non-wildcard `Host` entries from `~/.ssh/config`
-  and any `Include`d files, with a 5-column responsive table
-  (Alias | Account | Host | Port | Status).
-- **Filter**: fuzzy search by alias / hostname, or tag-prefix search
-  (`@prod`). Default filter also matches tags as a fallback.
-- **Connect**: one-key SSH (`Enter`) or reconnect to the most recent
-  host (`r`). `★` marks the last-connected host.
-- **Edit**: `e` opens `$EDITOR` at the exact line of the selected host.
-- **Manage** (new in v0.3): `a` add, `m` modify, `d` delete, `t` edit
-  tags — all via modal forms backed by `~/.ssh/config.d/sshs.conf`.
-- **Probe** (new in v0.3): background TCP connect checks surface
-  reachability in the Status column.
-- **Tags** (new in v0.3): per-host tags stored as `# @tags: a, b`
-  comments; rendered as `[t1,t2]` cyan prefix on the Alias column.
-- **Source-aware**: hosts outside sshs.conf are marked `·` and
-  protected from in-TUI edits — press `e` to edit the source file.
-- **Terminal-safe**: raw mode + alt screen restored on exit, error, or
-  panic. Works on Linux and macOS.
+The default command is now an **inline (fzf-style) host browser** that
+opens BELOW your shell prompt — no alternate screen takeover. Type to
+filter, `Enter` to ssh, `Esc` to cancel. When ssh exits, the shell
+prompt returns; the inline TUI does NOT re-open.
 
-v0.3에서 호스트 추가/수정/삭제(`a`/`m`/`d`)와 태그(`t`),
-백그라운드 프로브, sshs.conf Include 자동 설정이 추가되었습니다.
+The full management TUI (CRUD, tags, probes, edit) is one flag away:
+`sshc -m` (or `--manage`).
 
-## Install / 설치
+v0.4에서 기본 `sshs`는 **인라인 호스트 선택기**(셸 프롬프트 아래에 인라인
+뷰포트). 타이핑으로 즉시 필터, Enter로 ssh. ssh가 끝나면 셸로 복귀 —
+TUI는 재진입하지 않습니다. 전체 관리 TUI는 `sshs -m`로 진입.
+
+## Features
+
+### Inline mode (default)
+- Open a 15-line viewport below the shell prompt — no alternate screen.
+- Immediate fuzzy filter (every keystroke updates the list).
+- `Enter` selects + spawns ssh + exits back to the shell with ssh's
+  status code.
+- `r` reconnects to the most recent host (cross-session via
+  `~/.config/sshs/state.toml`).
+- Falls back to manage mode automatically if the terminal is shorter
+  than 12 rows.
+
+### Manage mode (`-m` / `--manage`)
+- v0.3 alternate-screen TUI: 5-column responsive table, last-connected
+  marker, source marker, modal subsystem.
+- **Host manager**: `a` add, `d` delete (with confirm), `Enter` open
+  edit form (or `$EDITOR` for external hosts), `t` edit tags.
+- **`s` connect**: ssh-spawn on the selected host (v0.3 Enter behaviour
+  moved to `s` so Enter can mean "open this for editing").
+- **Tags**: stored as `# @tags: a, b` comments above each Host block.
+  Filter with `@<tag>` or rely on the default fuzzy filter (also
+  matches tags as a fallback).
+- **First-run setup**: offers to add `Include ~/.ssh/config.d/sshs.conf`
+  to `~/.ssh/config` (with `.bak.sshs-YYYYMMDD` backup). Decision is
+  persisted to state.toml.
+- **Probe column**: background TCP connect checks surface reachability
+  (`●` open / `○` failed / `◌` inflight) in the Status column.
+
+### Both modes
+- Hand-rolled parser with `Include` directive support + circular
+  detection.
+- Terminal-safe: raw mode + alternate screen (manage only) restored on
+  exit, error, or panic.
+- Linux + macOS. Probe glyph requires a UTF-8 locale.
+
+## Install
 
 ```sh
 cargo install --path .
 ```
 
-## Usage / 사용법
+## Usage
 
 ```sh
-sshs
+sshc          # Inline mode (default in v0.4)
+sshc -m       # Full management TUI
+sshc --manage # Same as -m
 ```
 
-On first launch sshs offers to add an
-`Include ~/.ssh/config.d/sshs.conf` line to your `~/.ssh/config`
-(with a dated backup). Decline and sshs runs read-only.
+On first run of manage mode, sshs offers to add an `Include` line to
+your `~/.ssh/config` (with a dated backup). Decline and the manager
+runs read-only (browse + connect only).
 
-처음 실행 시 `~/.ssh/config`에 `Include` 줄 추가를 제안합니다 (백업 자동 생성).
-거절하면 sshs.conf 쓰기 기능은 비활성화되고 탐색·연결만 가능합니다.
+### Inline keybindings
 
-### Keybindings / 키바인딩
+| Key | Action |
+|-----|--------|
+| any printable char | append to fuzzy filter |
+| `↑`/`↓`, `j`/`k`* | navigate |
+| `Backspace` | delete one filter char |
+| `Esc` | clear filter (or exit if filter empty) |
+| `Ctrl+C` | exit (no ssh) |
+| `Enter` | ssh to selected host (then exit) |
+| `r`* | reconnect to last host (`state.memory.last_connected_alias`) |
 
-| Key | Action | 동작 |
-|-----|--------|------|
-| `↑` / `k` | Move selection up | 위로 이동 |
-| `↓` / `j` | Move selection down | 아래로 이동 |
-| `/` | Enter fuzzy filter mode (`@tag` for tag filter) | 퍼지/태그 필터 |
-| `Enter` | Connect to selected host | SSH 연결 |
-| `r` | Reconnect to last host | 마지막 호스트 재연결 |
-| `a` | Add host (modal form) | 호스트 추가 |
-| `m` | Modify selected host | 선택 호스트 수정 |
-| `d` | Delete selected host (with confirm) | 선택 호스트 삭제 |
-| `t` | Edit tags on selected host | 태그 편집 |
-| `e` | Open `$EDITOR` at host's line | 에디터로 열기 |
-| `?` | Show help | 도움말 |
-| `Esc` | Exit filter / cancel modal / Quit | 필터 종료/모달 취소/종료 |
-| `q` | Quit | 종료 |
+*`j` / `k` / `r` only navigate / reconnect when the filter is empty.
+Once you start typing, they become ordinary filter characters (fzf
+muscle memory).
 
-Inside a form modal: `Tab` / `Shift+Tab` move between fields,
-`Enter` submits (or advances), `Esc` cancels, `Ctrl+U` clears
-the active field.
+### Manage keybindings
 
-### Status column / 상태 컬럼
+| Key | Action |
+|-----|--------|
+| `↑`/`↓`, `j`/`k` | navigate |
+| `/` | enter fuzzy filter mode (`@tag` for tag filter) |
+| `Enter` | open edit form (sshs.conf hosts) / `$EDITOR` (external) |
+| `s` | ssh connect to selected host |
+| `r` | reconnect to last host |
+| `a` / `d` / `t` | add / delete / edit tags |
+| `e` | open `$EDITOR` at host's line |
+| `?` | help modal |
+| `Esc` | exit filter / cancel modal / quit |
+| `q` | quit |
+
+Inside a form modal: `Tab` / `Shift+Tab` move between fields, `Enter`
+submits (or advances), `Esc` cancels, `Ctrl+U` clears the active field.
+
+### Status column (manage mode)
 
 The 2-character Status column encodes `<probe><marker>`:
 
-- Marker `★`: last-connected host
-- Marker `·`: host lives outside `sshs.conf` (read-only via TUI)
-- Probe glyph: reachability (added in v0.3 — current visualization
-  reserves the slot; visible glyphs land with full wiring)
+- Probe glyph: reachability (`●` open / `○` failed / `◌` inflight / ` `
+  unknown).
+- Marker: `★` last-connected host; `·` external-source host
+  (read-only via TUI — use `e` or `Enter`); space otherwise.
 
-### sshs.conf / sshs.conf 파일
+### sshs.conf
 
-v0.3 introduces a managed file at `~/.ssh/config.d/sshs.conf` (mode
-`0600`). Hosts you add via `a` are written there with a banner
-warning that manual edits inside `Host` blocks may be overwritten on
-the next save. Your hand-written `~/.ssh/config` is never modified
-beyond a single `Include` line (with a dated `.bak` backup).
+Inline mode reads any host visible to `~/.ssh/config`.
+Manage mode writes new hosts to `~/.ssh/config.d/sshs.conf` (mode
+0600). Your hand-written `~/.ssh/config` is never modified beyond a
+single `Include` line (with a dated `.bak` backup).
 
-`a` 키로 추가한 호스트는 `~/.ssh/config.d/sshs.conf`에 저장됩니다.
-sshs는 메인 `~/.ssh/config`를 직접 건드리지 않고 `Include` 한 줄만 추가합니다
-(백업 자동 생성).
+### State file
 
-### State file / 상태 파일
-
-`~/.config/sshs/state.toml` (or `$XDG_CONFIG_HOME/sshs/state.toml`)
+`$XDG_CONFIG_HOME/sshs/state.toml` (fallback `~/.config/sshs/state.toml`)
 remembers:
 
-- whether the user accepted or declined the Include injection
-- the last-connected alias (for `r` reconnect across sessions)
+- whether the user accepted/declined the `Include` injection
+- the last-connected alias (used by `r` in both modes)
 
-## Architecture / 아키텍처
+## Architecture
 
 ```
 src/
-├── main.rs            — bootstrap + first-run setup + AppAction dispatch
-├── app.rs             — state machine (List + Modal modes, probe, state)
-├── config/
-│   ├── model.rs       — Host struct (alias, hostname, port, tags, source)
-│   ├── parser.rs      — Hand-rolled SSH config parser (line-aware)
-│   └── tags.rs        — # @tags: parse + render + normalize
-├── error.rs           — AppError, StorageError, SetupError, ProbeError
-├── exec/              — ssh spawn + $EDITOR
-├── probe/             — TCP connect worker pool + generation guard
-├── setup/             — first-run flow (scaffolding + permission gates)
-├── state/             — state.toml (TOML serde)
-├── storage/           — sshs.conf flock + atomic write + Include injector
-├── tui/               — terminal lifecycle + event loop runtime
-└── ui/                — render, layout, list, status bar, modal, forms
+├── main.rs              — thin dispatch: parse_mode → run::inline or manage
+├── run.rs               — inline() / manage() helpers
+├── inline_app.rs        — InlineApp (lean fzf-style state machine)
+├── app.rs               — manage-mode App (modes, probe, state, forms)
+├── config/{model,parser,tags}.rs
+├── error.rs             — AppError + per-domain errors
+├── exec/                — ssh spawn + $EDITOR
+├── probe/               — TCP connect worker pool (manage mode only)
+├── setup/               — first-run flow + permissions (manage mode only)
+├── state/               — state.toml (TOML serde)
+├── storage/             — sshs.conf flock + atomic write + Include injector
+├── tui/
+│   ├── lifecycle.rs     — TerminalGuard with ScreenMode { Alternate, Inline(N) }
+│   ├── runtime.rs       — manage event loop + ssh round-trip
+│   └── inline_runtime.rs — inline event loop + ssh single-shot
+└── ui/                  — render, layout, list, status bar, modal, forms
 ```
 
-## Testing / 테스트
+## Testing
 
 ```sh
-cargo test --release                     # 162 tests
+cargo test --release                     # 190 tests
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 cargo build --release
 ```
 
 See `docs/TESTING.md` for the full automated/manual checklist and the
-R-G1..R-G8 module-boundary regression greps.
+R-G1..R-G9 module-boundary regression greps.
 
-## Limitations / 제한사항
+Headless layout preview (no TUI takeover):
+
+```sh
+cargo run --release --example render_preview   # manage-mode panel
+cargo run --release --example inline_prototype # inline viewport
+```
+
+## Limitations
 
 - Unix-only (Linux + macOS). No Windows support.
-- Probe glyph visualization will populate as wiring lands; the column
-  is reserved.
-- The `e` editor jump uses the `+<line>` flag; non-vi/vim/nvim/nano
+- Probe column is manage-mode only. Inline mode skips probes for a
+  fast single-shot launch (no worker pool spin-up).
+- Tag column is omitted in inline mode for compactness.
+- `e` editor jump uses the `+<line>` flag; non-vi/vim/nvim/nano
   editors open the file but may ignore the line specifier.
 - Fuzzy search uses nucleo; sufficient for ≤ 500 hosts.
 
-  Linux/macOS 전용, 프로브 글리프는 후속 와이어링 시점에 채워집니다.
-  500호스트 미만에서 nucleo 퍼지 검색이 충분합니다.
-
-## License / 라이선스
+## License
 
 MIT

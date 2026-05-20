@@ -11,6 +11,8 @@ Scope:
 - §5 v0.2.0 release readiness checklist
 - §6 v0.3 manual checklist additions (host manager + probe + setup)
 - §7 v0.3.0 release readiness checklist
+- §8 v0.4 manual checklist additions (inline mode + manage rebind)
+- §9 v0.4.0 release readiness checklist
 
 ---
 
@@ -96,9 +98,14 @@ grep -lE "crate::app|crate::ui" src/probe/*.rs 2>/dev/null && echo FAIL || echo 
 # R-G8 (v0.3): ui/forms + ui/modal must not touch the filesystem or spawn processes
 grep -lE "std::fs|std::process::Command" src/ui/forms/*.rs src/ui/modal.rs \
   2>/dev/null && echo FAIL || echo PASS
+
+# R-G9 (v0.4): inline_app must remain a lean read-only browser
+#               (no probe pool, no modal subsystem, no storage writers)
+grep -lE "crate::probe|crate::ui::modal|crate::ui::forms|crate::storage::with_locked_write|crate::storage::inject_include" \
+  src/inline_app.rs 2>/dev/null && echo FAIL || echo PASS
 ```
 
-All eight must print `PASS`. If any prints `FAIL`, fix the underlying
+All nine must print `PASS`. If any prints `FAIL`, fix the underlying
 violation rather than relaxing the rule.
 
 ---
@@ -327,6 +334,115 @@ All MUST be true to tag v0.3.0:
 - [ ] CHANGELOG.md updated
 - [ ] README.md updated for v0.3
 - [ ] `git tag v0.3.0` applied
+- [ ] User explicit approval to push the tag
+- [ ] GitHub release notes published
+
+---
+
+## 8. v0.4 manual checklist additions
+
+Inline mode introduces a new terminal lifecycle (no alternate screen).
+These exercise the round-trip + panic + fallback behaviour that
+TestBackend cannot simulate.
+
+Prerequisites:
+- One reachable ssh host (e.g. `localhost` or any host in your
+  `~/.ssh/config`).
+- One unreachable host (any alias with a bad `HostName`).
+- shell prompt visible at the start of each test (no stale TUI output).
+
+### 8.1 Inline first-run
+
+- [ ] `cargo run --release` from a shell prompt.
+- [ ] An **inline viewport** opens BELOW the prompt — NOT a full-screen
+      alternate buffer. ~15 lines reserved.
+- [ ] Typing immediately filters (`web` → only web-prefix hosts).
+- [ ] `Esc` clears the filter; `Esc` again exits to the shell.
+- [ ] After exit: shell prompt functional. `stty -a | grep -E "icanon|echo"`
+      shows BOTH enabled (no `-icanon`, no `-echo`).
+
+### 8.2 Inline ssh round-trip
+
+- [ ] Run `cargo run --release`, select a reachable host with `↑/↓`,
+      press `Enter`.
+- [ ] Viewport clears, raw mode releases, cursor returns. ssh banner
+      appears in normal shell flow.
+- [ ] Run something (`hostname`, `ls`), then `exit`.
+- [ ] After ssh exits: **shell prompt returns directly** — the inline
+      TUI does NOT re-open.
+- [ ] `echo $?` reflects ssh's exit code (0 for clean disconnect).
+
+### 8.3 Inline ssh failure exit code
+
+- [ ] Run `cargo run --release` and connect to the unreachable host.
+- [ ] ssh prints connection error, exits with code 255.
+- [ ] `echo $?` shows `255` (or low byte of the ssh code).
+
+### 8.4 Inline `r` reconnect
+
+- [ ] After §8.2 left `last_connected_alias` saved in state.toml, run
+      `cargo run --release` again.
+- [ ] Without typing anything, press `r` → ssh spawns against the
+      previous host.
+- [ ] If state.toml is fresh and no prior connect: `r` is a silent no-op
+      (filter stays empty).
+
+### 8.5 Inline Ctrl-C
+
+- [ ] Run `cargo run --release`, type `abc` into the filter, press Ctrl-C.
+- [ ] Returns to shell prompt without spawning ssh. `stty -a` clean.
+
+### 8.6 Inline panic restoration
+
+- [ ] Temporarily inject a `panic!()` into `sshs::run::inline` (after
+      the TerminalGuard is acquired). Build + run.
+- [ ] Panic message reaches stderr; shell prompt remains usable.
+- [ ] Revert the panic injection.
+
+### 8.7 Terminal-too-small fallback
+
+- [ ] Resize the terminal to < 12 rows tall.
+- [ ] `cargo run --release` → stderr prints `terminal too small for
+      inline mode; falling back to --manage` and the alternate-screen
+      TUI opens instead.
+
+### 8.8 Manage rebind (`-m` flag)
+
+- [ ] `cargo run --release -- -m` → alternate-screen TUI opens.
+- [ ] On a sshs.conf-managed host, press `Enter` → the modify form
+      opens (Modal/Form mode). `Esc` cancels.
+- [ ] On an external-source host (in `~/.ssh/config` directly, not
+      sshs.conf), press `Enter` → `$EDITOR` opens at the host's line.
+- [ ] Press `s` on the selected host → ssh round-trip (alternate screen
+      suspended, ssh runs, on exit the TUI resumes).
+- [ ] Press `m` → no action (key unbound in v0.4).
+- [ ] Press `?` → help modal shows `Enter open  s ssh` (NOT `Enter ssh`).
+- [ ] `a / d / t / e / r / q` all still work as in v0.3.
+
+### 8.9 `--manage` long form
+
+- [ ] `cargo run --release -- --manage` → same as `-m`.
+
+---
+
+## 9. v0.4.0 release readiness checklist
+
+All MUST be true to tag v0.4.0:
+
+- [ ] R0–R6 commits landed on master
+- [ ] All 190 automated tests pass (release profile)
+- [ ] R-G1..R-G9 regression greps clean
+- [ ] `cargo clippy --all-targets -- -D warnings` 0 warnings
+- [ ] `cargo fmt --check` clean
+- [ ] §3 v0.2 manual checklist still green (manage mode regression)
+- [ ] §6 v0.3 manual checklist still green (host manager regression)
+- [ ] §8 v0.4 manual checklist signed off (inline + rebind)
+- [ ] `examples/inline_prototype.rs` runs cleanly + SSHS_PROTOTYPE_PANIC
+      restores the shell
+- [ ] `Cargo.toml` `version` bumped to `0.4.0`
+- [ ] CHANGELOG.md updated
+- [ ] README.md updated for v0.4 (inline-first)
+- [ ] `git tag v0.4.0` applied
 - [ ] User explicit approval to push the tag
 - [ ] GitHub release notes published
 

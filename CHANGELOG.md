@@ -8,6 +8,81 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.4.0] — 2026-05-20
+
+### Added
+
+- **Inline mode (`sshc`, no args)**. Default command opens an
+  `ratatui::Viewport::Inline(N)` host browser BELOW the shell prompt
+  instead of an alternate screen. Type to filter (immediate, fzf-style),
+  `↑/↓` or `j/k` to navigate, `Enter` to ssh, `Esc`/`Ctrl+C` to cancel,
+  `r` to reconnect to the last alias. Viewport height is
+  `(terminal_height − 5).clamp(8, 15)`; below 12 rows the binary falls
+  back to manage mode with a one-line stderr notice.
+- **Manage mode (`sshc -m` / `sshc --manage`)**. The v0.3 alternate-
+  screen TUI, retained behind a flag. Default command behaviour changed
+  in v0.4 — this is intentionally breaking for a single-user tool.
+- **`InlineApp`** — lean read-only host browser (no probes, no modal
+  subsystem, no forms, no storage writes). 144 lines, 13 unit tests.
+- **`tui::inline_runtime`** — `run_event_loop_inline` +
+  `handle_connect_inline`. Inline mode tears down the viewport before
+  ssh spawn and never re-enters the UI on ssh exit; the binary exits
+  with an `SshResult`-derived `ExitCode` so failures propagate to the
+  parent shell.
+- **`ScreenMode { Alternate, Inline(u16) }`** on `TerminalGuard`. The
+  panic hook tracks `RAW_ACTIVE` and `ALT_ACTIVE` independently, so a
+  panic in inline mode does NOT emit `LeaveAlternateScreen` (would
+  corrupt a normal-mode terminal).
+- **R-G9** boundary gate — `inline_app` cannot import `probe`,
+  `ui::modal`, `ui::forms`, or storage writers.
+- **`src/run.rs`** — `inline()` / `manage()` dispatch helpers. Keeps
+  `main.rs` thin (41 non-comment lines, R-G4 ≤ 80).
+- **`examples/inline_prototype.rs`** — standalone ratatui Viewport
+  smoke test for manual verification. Useful for terminal compat
+  triage.
+
+### Changed
+
+- **Manage-mode key rebind**:
+  - `Enter` opens the modify form for sshs.conf-managed hosts; falls
+    through to `AppAction::EditConfig` (`$EDITOR` jump) for external
+    hosts. Old "Enter = ssh" semantics moved to `s`.
+  - `s` — ssh connect for the selected host.
+  - `m` — removed. (Was previously "open modify form"; merged into
+    `Enter`.)
+  - Help modal text updated.
+- **CLI dispatch**: `main()` returns `ExitCode` (via Termination) so
+  ssh failure codes propagate to the parent shell. Inline `Quit` →
+  `SUCCESS`, `Connect/Reconnect` → low byte of the ssh result code,
+  `Crashed/UnknownTermination` → `FAILURE`.
+
+### Internal
+
+- `TerminalGuard` no longer holds a single `TERMINAL_ACTIVE` flag;
+  split into `RAW_ACTIVE` + `ALT_ACTIVE` atomics so mode-specific
+  enter/leave is idempotent.
+- Inline viewport is `terminal.clear()`-ed before ssh spawn so the
+  shell sees no frozen frame (fzf-style clean exit).
+
+### Tests
+
+- Total: 162 (v0.3.0) → **190** (v0.4.0).
+- New: `inline_app` 13 unit + `tests/inline_test.rs` 5 integration +
+  `ScreenMode` equality + manage-rebind 3 (`s` connects, Enter on
+  external opens editor, Enter on managed opens form, `m` unbound).
+  Old `test_app_enter_connect` renamed to `test_app_s_connects`.
+
+### Compatibility
+
+- `~/.ssh/config`, `~/.ssh/config.d/sshs.conf`, `state.toml` unchanged.
+- v0.3 users running `sshc` will land in inline mode on first launch.
+  The host list looks similar; selection and `Enter` ssh-connect work
+  as expected. To get the v0.3 behaviour back, use `sshc -m`.
+- First-run setup flow (`Include` injection) runs in **manage mode
+  only**. Inline mode reads whatever hosts are already visible to
+  `~/.ssh/config`; users who never run manage mode will not see the
+  setup prompt and inline still works (sshs.conf is simply absent).
+
 ## [0.3.0] — 2026-05-20
 
 ### Added
