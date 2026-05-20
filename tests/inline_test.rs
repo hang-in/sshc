@@ -88,6 +88,7 @@ fn test_state_seeded_reconnect() {
         setup: Default::default(),
         memory: MemorySection {
             last_connected_alias: Some("host-b".to_string()),
+            ..Default::default()
         },
     };
 

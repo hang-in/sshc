@@ -204,6 +204,7 @@ mod tests {
             setup: Default::default(),
             memory: crate::state::MemorySection {
                 last_connected_alias: Some("foo".to_string()),
+                ..Default::default()
             },
         };
         let app = InlineApp::new_with_state(vec![], &state);

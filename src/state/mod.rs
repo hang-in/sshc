@@ -7,9 +7,20 @@ use std::process;
 use std::os::unix::fs::PermissionsExt;
 
 pub mod schema;
-pub use schema::{MemorySection, SetupSection, State, CURRENT_VERSION};
+pub use schema::{MemorySection, RecentEntry, SetupSection, State, CURRENT_VERSION, RECENT_MAX};
 
 use crate::error::{SetupError, StorageError};
+
+/// Convert a file's last-modified time into Unix-epoch seconds, or 0
+/// when the timestamp can't be read.
+fn file_mtime_secs(path: &Path) -> u64 {
+    fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 
 /// Resolve the state.toml path: $XDG_CONFIG_HOME/sshc/state.toml,
 /// fallback ~/.config/sshc/state.toml. Returns None if no home dir.
@@ -48,7 +59,7 @@ fn load_from(path: &Path) -> Result<State, SetupError> {
     file.read_to_string(&mut contents)
         .map_err(|e| SetupError::Storage(StorageError::ReadFailed(e)))?;
 
-    let state: State =
+    let mut state: State =
         toml::from_str(&contents).map_err(|e| SetupError::StateParseFailed(e.to_string()))?;
     if state.version != CURRENT_VERSION {
         return Err(SetupError::StateParseFailed(format!(
@@ -56,7 +67,23 @@ fn load_from(path: &Path) -> Result<State, SetupError> {
             state.version
         )));
     }
+    migrate_legacy_recent(&mut state, file_mtime_secs(path));
     Ok(state)
+}
+
+/// If `memory.recent` is empty but the pre-v0.6 `last_connected_alias`
+/// is present, seed `recent` with a single entry. Uses `file_mtime` (not
+/// `0`) so the migrated entry sorts above absent history rather than
+/// sinking to the bottom on the first v0.6 open.
+fn migrate_legacy_recent(state: &mut State, file_mtime: u64) {
+    if state.memory.recent.is_empty() {
+        if let Some(alias) = state.memory.last_connected_alias.clone() {
+            state.memory.recent.push(RecentEntry {
+                alias,
+                ts: file_mtime,
+            });
+        }
+    }
 }
 
 fn save_to(path: &Path, state: &State) -> Result<(), SetupError> {
@@ -111,7 +138,13 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let path = temp.path().join("nested/state.toml");
         let mut state = State::default();
-        state.memory.last_connected_alias = Some("test-host".to_string());
+        // Use the v0.6 fields. last_connected_alias would trigger the
+        // legacy migration and round-trip wouldn't be an identity.
+        state.memory.recent.push(RecentEntry {
+            alias: "test-host".to_string(),
+            ts: 1_700_000_000,
+        });
+        state.memory.favorites.push("test-host".to_string());
         state.setup.declined_include_injection = true;
 
         save_to(&path, &state).unwrap();
@@ -125,6 +158,59 @@ mod tests {
         let path = temp.path().join("nonexistent.toml");
         let loaded = load_from(&path).unwrap();
         assert_eq!(loaded, State::default());
+    }
+
+    #[test]
+    fn test_load_migrates_legacy_last_connected_alias_into_recent() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("legacy.toml");
+        // v0.5 schema: only last_connected_alias, no `recent` / `favorites`.
+        fs::write(
+            &path,
+            "version = 1\n\n[setup]\n[memory]\nlast_connected_alias = \"prod-db\"\n",
+        )
+        .unwrap();
+
+        let loaded = load_from(&path).unwrap();
+        assert_eq!(loaded.memory.recent.len(), 1);
+        assert_eq!(loaded.memory.recent[0].alias, "prod-db");
+        // ts should be the file's mtime (non-zero on a freshly-written file).
+        assert!(loaded.memory.recent[0].ts > 0);
+        // Legacy field is still read so subsequent passes see the same
+        // pointer; we just don't migrate twice.
+        assert_eq!(
+            loaded.memory.last_connected_alias,
+            Some("prod-db".to_string())
+        );
+        assert!(loaded.memory.favorites.is_empty());
+    }
+
+    #[test]
+    fn test_load_skips_migration_when_recent_already_populated() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("dual.toml");
+        // Crafted file: both legacy + new fields present. Migration must
+        // not double-insert.
+        fs::write(
+            &path,
+            "version = 1\n\n[setup]\n[memory]\nlast_connected_alias = \"old\"\n\
+             [[memory.recent]]\nalias = \"new\"\nts = 1700000000\n",
+        )
+        .unwrap();
+
+        let loaded = load_from(&path).unwrap();
+        assert_eq!(loaded.memory.recent.len(), 1);
+        assert_eq!(loaded.memory.recent[0].alias, "new");
+    }
+
+    #[test]
+    fn test_state_v05_fixture_loads() {
+        // The shared fixture lives under tests/fixtures/ for cross-crate use.
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/state_v05.toml");
+        let loaded = load_from(&fixture).unwrap();
+        assert_eq!(loaded.memory.recent.len(), 1);
+        assert_eq!(loaded.memory.recent[0].alias, "prod-db");
+        assert!(loaded.setup.include_check_done);
     }
 
     #[test]
