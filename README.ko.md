@@ -13,7 +13,7 @@ brew install hang-in/tap/sshc
 
 ## 데모
 
-<!-- GIF goes here. -->
+![인라인 모드: 필터 → 선택 → ssh → 셸 복귀](docs/demos/demo.gif)
 
 ## 왜 sshc인가?
 

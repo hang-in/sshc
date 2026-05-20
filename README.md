@@ -13,7 +13,7 @@ brew install hang-in/tap/sshc
 
 ## Demo
 
-<!-- GIF goes here. -->
+![sshc inline mode: filter, pick, ssh, back to the shell](docs/demos/demo.gif)
 
 ## Why sshc?
 
