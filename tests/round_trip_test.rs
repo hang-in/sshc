@@ -5,6 +5,11 @@
 //! ssh_run, so we exercise the full spawn+wait+classify pipeline
 //! without depending on env::set_var (which is thread-unsafe under
 //! cargo test).
+//!
+//! Unix-only: the mock binaries are POSIX shell scripts. A Windows
+//! equivalent would need `.bat`/`.ps1` fixtures and ConPTY mocking;
+//! v0.7 leaves that to BRIEF_V8.
+#![cfg(unix)]
 
 use std::path::PathBuf;
 

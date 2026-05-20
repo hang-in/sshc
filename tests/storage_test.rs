@@ -1,3 +1,8 @@
+// Unix-only: drives nix::fcntl::flock directly and asserts 0o600 file
+// modes. The Windows lock path goes through LockFileEx in the library
+// and is exercised by the manual smoke tests in BRIEF_V7 §8.
+#![cfg(unix)]
+
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;

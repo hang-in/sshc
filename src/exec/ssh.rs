@@ -59,12 +59,16 @@ pub(crate) fn classify_exit_status(status: ExitStatus) -> SshResult {
     }
 }
 
-#[cfg(test)]
+// Unix-only test block: classify_exit_status takes a std::process::ExitStatus
+// and its `from_raw` ctor is unix-only. On Windows we'd need a different
+// classification table entirely; v0.7 keeps the existing exit-code mapping
+// Unix-only and lets the Windows path through `Command::new` use the default
+// status interpretation.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
     #[test]
-    #[cfg(unix)]
     fn test_classify_success() {
         let status = ExitStatus::from_raw(0);
         assert_eq!(classify_exit_status(status), SshResult::Success);

@@ -1,3 +1,8 @@
+// Unix-only: this file exercises file-mode (0o644 / 0o755 / 0o0700)
+// expectations that have no equivalent under Windows ACLs. The Windows
+// build skips these tests entirely.
+#![cfg(unix)]
+
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
