@@ -1,6 +1,6 @@
-# sshs Testing Guide
+# sshc Testing Guide
 
-This document covers the test surface for `sshs` and the manual checklist
+This document covers the test surface for `sshc` and the manual checklist
 that must be run before tagging a release.
 
 Scope:
@@ -135,7 +135,7 @@ Prerequisites:
 
 - [ ] After a successful round-trip in §3.1, press `r` — reconnects to
       the same host (no need to navigate or press Enter).
-- [ ] In a fresh `sshs` session (no prior connect), press `r` —
+- [ ] In a fresh `sshc` session (no prior connect), press `r` —
       status bar shows `"no recent host to reconnect"`. Wait 3s — the
       message clears.
 - [ ] Press `/` to enter filter mode, type `r` — the letter is
@@ -150,7 +150,7 @@ Prerequisites:
 - [ ] During an active ssh session, press Ctrl-C — ssh exits, TUI
       reappears, status bar is **silent** (no message).
 - [ ] Edit `~/.ssh/config` to break a host's `HostName` to nonexistent.
-      In sshs, press `e` on that host — `$EDITOR` opens at the right
+      In sshc, press `e` on that host — `$EDITOR` opens at the right
       line. Save and quit. TUI reappears with the updated config.
 - [ ] Set `EDITOR=/usr/bin/false` and press `e` — TUI reappears
       cleanly, log entry written; no crash.
@@ -246,55 +246,55 @@ and the first-run Include injection prompt.
 Prerequisites:
 - `~/.ssh/config` exists (the first-run flow needs it). At least one
   unrelated `Host` block — used to verify the source marker.
-- `~/.ssh/config.d/sshs.conf` may or may not exist; first-run sets it up.
+- `~/.ssh/config.d/sshc.conf` may or may not exist; first-run sets it up.
 - One reachable host (e.g. `localhost`) and one unreachable (e.g. a host
   whose `HostName` resolves to `192.0.2.1`).
 
 ### 6.1 First-run flow
 
-- [ ] `mv ~/.ssh/config.d/sshs.conf{,.bak} 2>/dev/null` AND remove
-      any prior `Include …/sshs.conf` line from `~/.ssh/config`.
-      Then `rm ~/.config/sshs/state.toml 2>/dev/null` to simulate first run.
+- [ ] `mv ~/.ssh/config.d/sshc.conf{,.bak} 2>/dev/null` AND remove
+      any prior `Include …/sshc.conf` line from `~/.ssh/config`.
+      Then `rm ~/.config/sshc/state.toml 2>/dev/null` to simulate first run.
 - [ ] `cargo run --release` — TUI starts with a centered confirmation
-      modal: "sshs needs to add an Include line … Allow?".
-- [ ] Press `n` — modal closes, status line shows `sshs.conf` is
-      read-only in subsequent host operations. `~/.config/sshs/state.toml`
+      modal: "sshc needs to add an Include line … Allow?".
+- [ ] Press `n` — modal closes, status line shows `sshc.conf` is
+      read-only in subsequent host operations. `~/.config/sshc/state.toml`
       now records `declined_include_injection = true`.
-- [ ] Restart sshs. Confirmation modal does NOT reappear (state remembered).
+- [ ] Restart sshc. Confirmation modal does NOT reappear (state remembered).
 - [ ] Restore: delete `state.toml`, rerun. Confirmation modal returns.
       This time press `y` — Include line added to `~/.ssh/config`,
-      backup `.bak.sshs-YYYYMMDD` created, status: "Include added".
+      backup `.bak.sshc-YYYYMMDD` created, status: "Include added".
 
 ### 6.2 Add / modify / delete / tags
 
-(Requires sshs.conf in writable state; complete §6.1 with `y` first.)
+(Requires sshc.conf in writable state; complete §6.1 with `y` first.)
 
 - [ ] Press `a` — Host form modal opens. Tab through 6 fields.
 - [ ] Submit with `alias=test1`, `HostName=127.0.0.1` only. Modal closes,
-      `test1` appears in the list. `~/.ssh/config.d/sshs.conf` was rewritten.
+      `test1` appears in the list. `~/.ssh/config.d/sshc.conf` was rewritten.
 - [ ] Press `m` on `test1` — form opens pre-populated. Change port to
-      `2222`. Submit. List + sshs.conf reflect the change.
+      `2222`. Submit. List + sshc.conf reflect the change.
 - [ ] Press `t` on `test1` — tag form opens. Enter `prod, api`. Submit.
       List shows `[prod,api] test1` cyan prefix.
 - [ ] Press `/`, type `@prod`, Enter — only `test1` (and any other tagged
       hosts with `prod` substring) remain visible.
 - [ ] Press `d` on `test1` — Yes/No confirmation. Press `n` — host stays.
-      Press `d` again, press `y` — host removed. sshs.conf updated.
+      Press `d` again, press `y` — host removed. sshc.conf updated.
 
 ### 6.3 External host (source marker)
 
-- [ ] In `~/.ssh/config` (not sshs.conf), add a `Host external1` block.
-- [ ] Restart sshs (Edit re-parses, but a clean restart picks it up
+- [ ] In `~/.ssh/config` (not sshc.conf), add a `Host external1` block.
+- [ ] Restart sshc (Edit re-parses, but a clean restart picks it up
       regardless). `external1` shows a `·` marker in the Status column.
 - [ ] Press `m` on `external1` — status shows "this host lives outside
-      sshs.conf; press 'e' to edit source". Form does NOT open.
-- [ ] Press `d` on `external1` — status shows "can only delete sshs.conf
+      sshc.conf; press 'e' to edit source". Form does NOT open.
+- [ ] Press `d` on `external1` — status shows "can only delete sshc.conf
       hosts". No confirmation modal.
 - [ ] Press `e` on `external1` — `$EDITOR` opens at the right line.
 
 ### 6.4 Probe glyph
 
-- [ ] In sshs.conf, ensure one reachable host (`HostName 127.0.0.1`,
+- [ ] In sshc.conf, ensure one reachable host (`HostName 127.0.0.1`,
       `Port` = a locally-bound port) and one unreachable
       (`HostName 192.0.2.1`).
 - [ ] At startup the reachable row's Status glyph eventually settles
@@ -329,7 +329,7 @@ All MUST be true to tag v0.3.0:
 - [ ] §3 v0.2 manual checklist still green (regression)
 - [ ] §6 v0.3 manual checklist run by a human on macOS Terminal + iTerm2
 - [ ] First-run flow tested with a clean `state.toml`
-- [ ] Include injection backup file (`.bak.sshs-YYYYMMDD`) verified
+- [ ] Include injection backup file (`.bak.sshc-YYYYMMDD`) verified
 - [ ] `Cargo.toml` `version` bumped to `0.3.0`
 - [ ] CHANGELOG.md updated
 - [ ] README.md updated for v0.3
@@ -394,7 +394,7 @@ Prerequisites:
 
 ### 8.6 Inline panic restoration
 
-- [ ] Temporarily inject a `panic!()` into `sshs::run::inline` (after
+- [ ] Temporarily inject a `panic!()` into `sshc::run::inline` (after
       the TerminalGuard is acquired). Build + run.
 - [ ] Panic message reaches stderr; shell prompt remains usable.
 - [ ] Revert the panic injection.
@@ -409,10 +409,10 @@ Prerequisites:
 ### 8.8 Manage rebind (`-m` flag)
 
 - [ ] `cargo run --release -- -m` → alternate-screen TUI opens.
-- [ ] On a sshs.conf-managed host, press `Enter` → the modify form
+- [ ] On a sshc.conf-managed host, press `Enter` → the modify form
       opens (Modal/Form mode). `Esc` cancels.
 - [ ] On an external-source host (in `~/.ssh/config` directly, not
-      sshs.conf), press `Enter` → `$EDITOR` opens at the host's line.
+      sshc.conf), press `Enter` → `$EDITOR` opens at the host's line.
 - [ ] Press `s` on the selected host → ssh round-trip (alternate screen
       suspended, ssh runs, on exit the TUI resumes).
 - [ ] Press `m` → no action (key unbound in v0.4).

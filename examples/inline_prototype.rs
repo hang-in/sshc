@@ -91,7 +91,7 @@ fn draw(
         let area = f.area();
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(format!(" sshs prototype ({}) ", filtered.len()));
+            .title(format!(" sshc prototype ({}) ", filtered.len()));
         let inner = block.inner(area);
         f.render_widget(block, area);
 

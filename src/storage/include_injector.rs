@@ -6,12 +6,12 @@ use std::time::SystemTime;
 use crate::error::StorageError;
 
 /// Returns true if `main_config` already contains an Include directive whose
-/// resolved path canonicalizes to `sshs_conf_path`.
-pub fn is_include_present(main_config: &Path, sshs_conf_path: &Path) -> Result<bool, StorageError> {
+/// resolved path canonicalizes to `sshc_conf_path`.
+pub fn is_include_present(main_config: &Path, sshc_conf_path: &Path) -> Result<bool, StorageError> {
     let content = fs::read_to_string(main_config).map_err(StorageError::ReadFailed)?;
-    let target = sshs_conf_path
+    let target = sshc_conf_path
         .canonicalize()
-        .unwrap_or_else(|_| sshs_conf_path.to_path_buf());
+        .unwrap_or_else(|_| sshc_conf_path.to_path_buf());
 
     for line in content.lines() {
         let trimmed = line.trim();
@@ -32,21 +32,21 @@ pub fn is_include_present(main_config: &Path, sshs_conf_path: &Path) -> Result<b
     Ok(false)
 }
 
-/// Append a sshs-managed Include line to the end of `main_config`. No-op if
-/// already present. Creates a dated `.bak.sshs-YYYYMMDD` before mutating.
-pub fn inject_include(main_config: &Path, sshs_conf_path: &Path) -> Result<(), StorageError> {
-    if is_include_present(main_config, sshs_conf_path)? {
+/// Append a sshc-managed Include line to the end of `main_config`. No-op if
+/// already present. Creates a dated `.bak.sshc-YYYYMMDD` before mutating.
+pub fn inject_include(main_config: &Path, sshc_conf_path: &Path) -> Result<(), StorageError> {
+    if is_include_present(main_config, sshc_conf_path)? {
         return Ok(());
     }
     let backup_path = backup_path_for(main_config);
     fs::copy(main_config, &backup_path).map_err(StorageError::BackupFailed)?;
 
-    let include_value = preferred_include_form(sshs_conf_path);
+    let include_value = preferred_include_form(sshc_conf_path);
     let mut file = OpenOptions::new()
         .append(true)
         .open(main_config)
         .map_err(StorageError::WriteFailed)?;
-    writeln!(file, "\n# Added by sshs; do not remove.").map_err(StorageError::WriteFailed)?;
+    writeln!(file, "\n# Added by sshc; do not remove.").map_err(StorageError::WriteFailed)?;
     writeln!(file, "Include {}", include_value).map_err(StorageError::WriteFailed)?;
     Ok(())
 }
@@ -64,16 +64,16 @@ fn expand_user(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
-fn preferred_include_form(sshs_conf: &Path) -> String {
+fn preferred_include_form(sshc_conf: &Path) -> String {
     if let Some(home) = dirs::home_dir() {
-        let default = home.join(".ssh").join("config.d").join("sshs.conf");
-        let conf_canon = sshs_conf.canonicalize().ok();
+        let default = home.join(".ssh").join("config.d").join("sshc.conf");
+        let conf_canon = sshc_conf.canonicalize().ok();
         let default_canon = default.canonicalize().ok();
-        if sshs_conf == default || (conf_canon.is_some() && conf_canon == default_canon) {
-            return "~/.ssh/config.d/sshs.conf".to_string();
+        if sshc_conf == default || (conf_canon.is_some() && conf_canon == default_canon) {
+            return "~/.ssh/config.d/sshc.conf".to_string();
         }
     }
-    sshs_conf.display().to_string()
+    sshc_conf.display().to_string()
 }
 
 fn backup_path_for(main_config: &Path) -> PathBuf {
@@ -83,7 +83,7 @@ fn backup_path_for(main_config: &Path) -> PathBuf {
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "config".to_string());
     let parent = main_config.parent().unwrap_or_else(|| Path::new("."));
-    parent.join(format!("{}.bak.sshs-{}", stem, date))
+    parent.join(format!("{}.bak.sshc-{}", stem, date))
 }
 
 /// Today's date as YYYYMMDD in UTC, computed from std::time without external deps.
@@ -122,21 +122,21 @@ mod tests {
         let temp = assert_fs::TempDir::new().unwrap();
         let main = temp.child("config");
         main.write_str("Host *\n    Port 22\n").unwrap();
-        let sshs = temp.child("sshs.conf");
-        sshs.touch().unwrap();
-        assert!(!is_include_present(main.path(), sshs.path()).unwrap());
+        let sshc_conf_handle = temp.child("sshc.conf");
+        sshc_conf_handle.touch().unwrap();
+        assert!(!is_include_present(main.path(), sshc_conf_handle.path()).unwrap());
     }
 
     #[test]
     fn test_is_include_present_when_present() {
         let temp = assert_fs::TempDir::new().unwrap();
         let main = temp.child("config");
-        let sshs = temp.child("sshs.conf");
-        sshs.touch().unwrap();
-        let abs = sshs.path().canonicalize().unwrap();
+        let sshc_conf_handle = temp.child("sshc.conf");
+        sshc_conf_handle.touch().unwrap();
+        let abs = sshc_conf_handle.path().canonicalize().unwrap();
         main.write_str(&format!("Include {}\n", abs.display()))
             .unwrap();
-        assert!(is_include_present(main.path(), sshs.path()).unwrap());
+        assert!(is_include_present(main.path(), sshc_conf_handle.path()).unwrap());
     }
 
     #[test]
@@ -144,11 +144,11 @@ mod tests {
         let temp = assert_fs::TempDir::new().unwrap();
         let main = temp.child("config");
         main.write_str("Host *\n").unwrap();
-        let sshs = temp.child("sshs.conf");
-        sshs.touch().unwrap();
+        let sshc_conf_handle = temp.child("sshc.conf");
+        sshc_conf_handle.touch().unwrap();
 
-        inject_include(main.path(), sshs.path()).unwrap();
-        inject_include(main.path(), sshs.path()).unwrap();
+        inject_include(main.path(), sshc_conf_handle.path()).unwrap();
+        inject_include(main.path(), sshc_conf_handle.path()).unwrap();
 
         let content = fs::read_to_string(main.path()).unwrap();
         let count = content

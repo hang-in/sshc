@@ -1,4 +1,4 @@
-# sshs v0.3.0 — Execution Plan
+# sshc v0.3.0 — Execution Plan
 
 > Companion to `BRIEF_V3.md`. Drives the implementation: 15 tasks across
 > 9 rounds (R0–R8), with parallel-vs-serial scheduling, delegation
@@ -266,7 +266,7 @@ Per BRIEF_V3.md §6.10. Files: `src/setup/{mod,detect,permissions}.rs`. Integrat
 - Replace current Line-based row with `ratatui::widgets::Row` + `Table`.
 - 5 columns per BRIEF_V3 §5 Q6 constraints.
 - Tag prefix renders in Alias cell when `!host.tags.is_empty()`.
-- Source marker `· ` in Status column when `host.source_file != sshs.conf path`.
+- Source marker `· ` in Status column when `host.source_file != sshc.conf path`.
 - `last_connected` still drives ★ via Status column.
 - Status column now multi-purpose: ★ (last) / probe glyph / · (external) — combine; spec a single rendered char per row with priority `★ > probe > ·`. Actually the simplest: probe glyph as base; ★ overlays as separate column or replaces probe glyph when last == alias. Architect to decide at implementation time; prefer 2-char Status: `<probe><marker>` where marker is space or ★ or ·.
 
@@ -289,7 +289,7 @@ Each sub-patch verifies build green before the next.
 ### T13 (docs + CHANGELOG + README)
 - docs/TESTING.md: append v0.3 manual checklist + new grep gates R-G6/R-G7/R-G8.
 - CHANGELOG.md: NEW. Initial entries: v0.2.0 (one-line summary) + v0.3.0 (feature list).
-- README.md: update feature list, add screenshot of new layout, mention sshs.conf and Include injection, document `a/d/m/t/?` keys.
+- README.md: update feature list, add screenshot of new layout, mention sshc.conf and Include injection, document `a/d/m/t/?` keys.
 
 ---
 
@@ -336,9 +336,9 @@ Carried over from PLAN_V0.2.md §7. Reviewer must, before applying:
 | `toml`/`serde` crate version conflicts | Pin to known-compatible majors (toml 0.8, serde 1). |
 | probe thread leak on quit | Drop(ProbePool) joins with timeout, then detaches. Document. |
 | terminal flicker on form open/close | Use ratatui's Layout::split to inset modal; full redraw on transition. |
-| sshs.conf write fails mid-batch (form submit) | Status bar surfaces error. App in-memory state unchanged. User retries. |
+| sshc.conf write fails mid-batch (form submit) | Status bar surfaces error. App in-memory state unchanged. User retries. |
 | Include line conflicts with user's hand-edited config | Append after EOF respects existing structure. Backup .bak before write. User can revert. |
-| Migration: v0.2 users see Include prompt unexpectedly | Modal copy is explicit: "First time using sshs v0.3?". User can decline → state.toml records. |
+| Migration: v0.2 users see Include prompt unexpectedly | Modal copy is explicit: "First time using sshc v0.3?". User can decline → state.toml records. |
 | Layout regression on small terminals | T8 column priority hides gracefully; manual test covers 80x24 and 60x24. |
 | glm produces non-exhaustive matches for new enums | Architect checklist step 6 catches at build time. |
 
@@ -371,7 +371,7 @@ All MUST be true to tag v0.3.0:
 |---|---|
 | `Match` directive shows up in user configs and parser tags leak | Patch tag parsing to also flush on Match (was already a v0.1 fix) |
 | Probe glyph rendering differs on Linux ttys | Document; add fallback ASCII set behind feature flag |
-| sshs.conf needs schema versioning later | Add `# sshs-schema: 1` banner now (out of scope for v0.3) |
+| sshc.conf needs schema versioning later | Add `# sshc-schema: 1` banner now (out of scope for v0.3) |
 | Performance issue with > 200 hosts | Profile in v0.4; reduce probe frequency |
 | User wants persistent connection counts | v0.4 feature, do not bolt on |
 

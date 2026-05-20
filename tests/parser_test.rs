@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use assert_fs::fixture::{FileWriteStr, PathChild, PathCreateDir};
-use sshs::config::model::Host;
-use sshs::config::parser::parse_config;
+use sshc::config::model::Host;
+use sshc::config::parser::parse_config;
 
 fn fixture_path(name: &str) -> PathBuf {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

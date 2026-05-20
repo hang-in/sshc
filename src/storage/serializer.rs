@@ -1,14 +1,14 @@
 use crate::config::model::Host;
 use crate::config::tags::render_tag_line;
 
-pub const SSHS_CONF_BANNER: &str =
-    "# Managed by sshs. Manual edits inside Host blocks may be overwritten on next save.\n\n";
+pub const SSHC_CONF_BANNER: &str =
+    "# Managed by sshc. Manual edits inside Host blocks may be overwritten on next save.\n\n";
 
-/// Render Host list into the canonical sshs.conf text body.
+/// Render Host list into the canonical sshc.conf text body.
 /// Blocks are separated by a blank line. Output starts with the banner and
 /// ends with a newline.
 pub fn host_blocks_to_text(hosts: &[Host]) -> String {
-    let mut out = String::from(SSHS_CONF_BANNER);
+    let mut out = String::from(SSHC_CONF_BANNER);
     for (i, host) in hosts.iter().enumerate() {
         if i > 0 {
             out.push('\n');
@@ -55,7 +55,7 @@ mod tests {
     #[test]
     fn test_serialize_host_no_tags() {
         let text = host_blocks_to_text(&[h("test", vec![])]);
-        assert!(text.starts_with(SSHS_CONF_BANNER));
+        assert!(text.starts_with(SSHC_CONF_BANNER));
         assert!(text.contains("Host test\n"));
         assert!(!text.contains("# @tags"));
     }
@@ -79,6 +79,6 @@ mod tests {
     #[test]
     fn test_serialize_empty_list() {
         let text = host_blocks_to_text(&[]);
-        assert_eq!(text, SSHS_CONF_BANNER);
+        assert_eq!(text, SSHC_CONF_BANNER);
     }
 }

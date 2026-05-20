@@ -1,14 +1,14 @@
-# sshs v0.4.0 — Architect Brief
+# sshc v0.4.0 — Architect Brief
 
 ## 1. Context
 
-sshs is a Rust TUI for managing SSH host connections. Shipped to date:
+sshc is a Rust TUI for managing SSH host connections. Shipped to date:
 
 - **v0.1.0** — list non-wildcard `Host` entries, fuzzy filter, `exec()` ssh.
 - **v0.2.0** — spawn+wait round-trip (TUI suspended around ssh), `★` marker,
   `r` reconnect, transient status bar, panic-safe terminal restore.
-- **v0.3.0** — first-run setup (`Include` injection), `sshs.conf` for
-  sshs-managed hosts, tags (`# @tags: ...`), TCP probe glyphs, modal-form
+- **v0.3.0** — first-run setup (`Include` injection), `sshc.conf` for
+  sshc-managed hosts, tags (`# @tags: ...`), TCP probe glyphs, modal-form
   CRUD (`a`/`m`/`d`/`t`), source-aware UI, centered dynamic panel, dual-mode
   status indicator.
 
@@ -65,7 +65,7 @@ behaviour, render layout.
   out of scope for v0.4.
 
 ### 4.3 Display
-- Bordered header line: `sshs <N>` and the filter query inline.
+- Bordered header line: `sshc <N>` and the filter query inline.
 - Columns: `Alias` | `Account` | `Host` | `Port` | `St` (status: probe
   glyph + last marker, same as manage mode).
 - **Tag column omitted** in inline mode. Tag prefix on Alias also omitted
@@ -109,7 +109,7 @@ Existing v0.3 alternate-screen TUI, with the following key remapping:
 | `q`, `Esc`, `/`, `?` | unchanged | unchanged |
 
 ### 5.1 Enter on read-only hosts
-A host whose `source_file` is not `~/.ssh/config.d/sshs.conf` cannot be
+A host whose `source_file` is not `~/.ssh/config.d/sshc.conf` cannot be
 edited via the form. Enter on such a host **opens `$EDITOR` at the host's
 line** (same effect as `e`). Rationale: "Enter = do something with this
 row" stays consistent.
@@ -287,7 +287,7 @@ fn run_manage() -> Result<ExitCode, AppError>;
 Both helpers are short. `run_inline` skips first-run setup (the manage
 flow handles that); inline simply reads the existing hosts and runs.
 If the user has never run manage mode, inline still works (state.toml
-defaults are fine, sshs.conf simply doesn't exist or is empty).
+defaults are fine, sshc.conf simply doesn't exist or is empty).
 
 ## 8. Risk-area decisions
 
@@ -326,7 +326,7 @@ Manage = v0.3 `/`-prefix unchanged. Different by design.
   `tui/lifecycle` mode-aware unit tests (~3). Target: 185+ total.
 
 ### Q6 — Read-only Enter in manage
-Read-only host (source_file ≠ sshs.conf): `Enter` falls through to
+Read-only host (source_file ≠ sshc.conf): `Enter` falls through to
 `AppAction::EditConfig` (same as `e`). status_message announces the
 fallback: "external host — opening editor".
 
@@ -344,11 +344,11 @@ grep -lE "crate::probe|crate::ui::modal|crate::ui::forms|crate::storage::with_lo
   src/inline_app.rs 2>/dev/null && echo FAIL || echo PASS
 ```
 
-`storage::sshs_conf_path` is allowed (read-only path helper).
+`storage::sshc_conf_path` is allowed (read-only path helper).
 
 ## 10. Backward compatibility
 
-- `~/.ssh/config` and `~/.ssh/config.d/sshs.conf` unchanged.
+- `~/.ssh/config` and `~/.ssh/config.d/sshc.conf` unchanged.
 - `state.toml` unchanged (inline mode reads `last_connected_alias` for `r`).
 - v0.3 users running `sshc` with no args see inline mode for the first
   time. Behaviour is intuitive enough that no migration note is needed

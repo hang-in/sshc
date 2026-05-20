@@ -1,8 +1,8 @@
 use std::process::ExitCode;
 
-use sshs::error::AppError;
-use sshs::run;
-use sshs::tui::{install_panic_hook, ScreenMode};
+use sshc::error::AppError;
+use sshc::run;
+use sshc::tui::{install_panic_hook, ScreenMode};
 
 const VIEWPORT_MAX: u16 = 15;
 const VIEWPORT_MIN: u16 = 8;

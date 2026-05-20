@@ -8,8 +8,8 @@
 
 use std::path::PathBuf;
 
-use sshs::error::SshError;
-use sshs::exec::ssh::{ssh_run, SshResult};
+use sshc::error::SshError;
+use sshc::exec::ssh::{ssh_run, SshResult};
 
 fn fixture(name: &str) -> PathBuf {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

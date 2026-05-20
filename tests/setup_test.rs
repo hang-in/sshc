@@ -1,10 +1,10 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
-use sshs::setup::detect::{include_is_present, path_exists};
-use sshs::setup::permissions::{ensure_dir_mode, ensure_file_mode};
-use sshs::setup::SetupOutcome;
-use sshs::storage::{inject_include, sshs_conf_path};
+use sshc::setup::detect::{include_is_present, path_exists};
+use sshc::setup::permissions::{ensure_dir_mode, ensure_file_mode};
+use sshc::setup::SetupOutcome;
+use sshc::storage::{inject_include, sshc_conf_path};
 
 fn unique_path(label: &str) -> std::path::PathBuf {
     let nanos = std::time::SystemTime::now()
@@ -12,7 +12,7 @@ fn unique_path(label: &str) -> std::path::PathBuf {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     std::env::temp_dir().join(format!(
-        "sshs_setup_{}_{}_{}",
+        "sshc_setup_{}_{}_{}",
         label,
         std::process::id(),
         nanos
@@ -79,26 +79,26 @@ fn detect_include_is_present_round_trip() {
     fs::create_dir_all(&dir).expect("mkdir");
 
     let main_config = dir.join("config");
-    let sshs_conf = dir.join("sshs.conf");
+    let sshc_conf = dir.join("sshc.conf");
     fs::write(&main_config, "Host other\n  HostName ex.com\n").expect("write main");
-    fs::File::create(&sshs_conf).expect("create sshs_conf");
+    fs::File::create(&sshc_conf).expect("create sshc_conf");
 
-    assert!(!include_is_present(&main_config, &sshs_conf).expect("check 1"));
-    inject_include(&main_config, &sshs_conf).expect("inject");
-    assert!(include_is_present(&main_config, &sshs_conf).expect("check 2"));
+    assert!(!include_is_present(&main_config, &sshc_conf).expect("check 1"));
+    inject_include(&main_config, &sshc_conf).expect("inject");
+    assert!(include_is_present(&main_config, &sshc_conf).expect("check 2"));
 
     let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
-fn sshs_conf_path_resolves_when_home_available() {
+fn sshc_conf_path_resolves_when_home_available() {
     // Smoke: the function returns Some(..) on any environment where dirs
     // can resolve a home directory. CI containers always have $HOME, so
     // this should be Some. If $HOME is unset, the function returns None
     // — accept either outcome rather than fail.
-    let resolved = sshs_conf_path();
+    let resolved = sshc_conf_path();
     if let Some(p) = resolved {
-        assert!(p.ends_with("sshs.conf"));
-        assert!(p.to_string_lossy().contains(".ssh/config.d/sshs.conf"));
+        assert!(p.ends_with("sshc.conf"));
+        assert!(p.to_string_lossy().contains(".ssh/config.d/sshc.conf"));
     }
 }

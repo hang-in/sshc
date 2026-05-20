@@ -8,8 +8,8 @@ pub fn path_exists(path: &Path) -> bool {
 
 /// Convenience wrapper around `crate::storage::is_include_present` that
 /// converts `StorageError` into `SetupError::Storage`.
-pub fn include_is_present(main_config: &Path, sshs_conf: &Path) -> Result<bool, SetupError> {
-    crate::storage::is_include_present(main_config, sshs_conf).map_err(SetupError::Storage)
+pub fn include_is_present(main_config: &Path, sshc_conf: &Path) -> Result<bool, SetupError> {
+    crate::storage::is_include_present(main_config, sshc_conf).map_err(SetupError::Storage)
 }
 
 #[cfg(test)]
@@ -21,7 +21,7 @@ mod tests {
     fn test_path_exists() {
         let temp_dir = std::env::temp_dir();
         let file_path = temp_dir.join(format!(
-            "sshs_detect_test_{}_{}.tmp",
+            "sshc_detect_test_{}_{}.tmp",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

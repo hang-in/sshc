@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::config::model::Host;
 use crate::config::tags::normalize_tag;
-use crate::error::{AppError, StorageError};
+use crate::error::{AppError, SetupError};
 use crate::exec::ssh::SshResult;
 use crate::probe::{ProbeState, ProbeUpdate};
 use crate::state::State as AppState;
@@ -228,7 +228,7 @@ impl App {
     fn open_add_form(&mut self) {
         if self.is_read_only() {
             self.status_message = Some(StatusMessage::new(
-                "read-only: sshs.conf is not Included by main ssh_config",
+                "read-only: sshc.conf is not Included by main ssh_config",
             ));
             return;
         }
@@ -245,9 +245,9 @@ impl App {
         let Some(host) = self.selected_host().cloned() else {
             return;
         };
-        if host.source_file != Self::sshs_conf_path_or_blank() {
+        if host.source_file != Self::sshc_conf_path_or_blank() {
             self.status_message = Some(StatusMessage::new(
-                "this host lives outside sshs.conf; press 'e' to edit source",
+                "this host lives outside sshc.conf; press 'e' to edit source",
             ));
             return;
         }
@@ -278,9 +278,9 @@ impl App {
         let Some(host) = self.selected_host().cloned() else {
             return;
         };
-        if host.source_file != Self::sshs_conf_path_or_blank() {
+        if host.source_file != Self::sshc_conf_path_or_blank() {
             self.status_message = Some(StatusMessage::new(
-                "tags can only be edited on sshs.conf hosts",
+                "tags can only be edited on sshc.conf hosts",
             ));
             return;
         }
@@ -298,8 +298,8 @@ impl App {
         let Some(host) = self.selected_host().cloned() else {
             return;
         };
-        if host.source_file != Self::sshs_conf_path_or_blank() {
-            self.status_message = Some(StatusMessage::new("can only delete sshs.conf hosts"));
+        if host.source_file != Self::sshc_conf_path_or_blank() {
+            self.status_message = Some(StatusMessage::new("can only delete sshc.conf hosts"));
             return;
         }
         self.mode = AppMode::Modal(ModalKind::Confirmation {
@@ -319,9 +319,9 @@ impl App {
         });
     }
 
-    /// v0.4 Enter behaviour: open the edit form for sshs.conf-managed
+    /// v0.4 Enter behaviour: open the edit form for sshc.conf-managed
     /// hosts (manage them); open `$EDITOR` at the host's line for
-    /// external-source hosts (sshs.conf-external — cannot be edited via
+    /// external-source hosts (sshc.conf-external — cannot be edited via
     /// the form). For empty lists, no-op.
     fn activate_selected(&mut self) {
         if self.filtered.is_empty() {
@@ -329,7 +329,7 @@ impl App {
         }
         let host_is_managed = self
             .selected_host()
-            .map(|h| h.source_file == Self::sshs_conf_path_or_blank())
+            .map(|h| h.source_file == Self::sshc_conf_path_or_blank())
             .unwrap_or(false);
         if host_is_managed {
             self.open_modify_form();
@@ -533,21 +533,23 @@ impl App {
         self.hosts.len()
     }
 
-    /// True when sshs cannot persist changes to sshs.conf (user declined the
+    /// True when sshc cannot persist changes to sshc.conf (user declined the
     /// Include injection during first-run setup).
     pub fn is_read_only(&self) -> bool {
         self.state.setup.declined_include_injection
     }
 
-    fn sshs_conf_path_or_blank() -> std::path::PathBuf {
-        crate::storage::sshs_conf_path().unwrap_or_default()
+    fn sshc_conf_path_or_blank() -> std::path::PathBuf {
+        crate::storage::sshc_conf_path().unwrap_or_default()
     }
 
     /// Apply an add-host form submission: append to in-memory hosts and
     /// persist via storage::with_locked_write.
     fn apply_add(&mut self, payload: &FormPayload) -> Result<(), AppError> {
-        let host = host_from_payload(payload, &Self::sshs_conf_path_or_blank())
-            .ok_or(AppError::Storage(StorageError::LockHeldByOther))?;
+        // The caller (apply_form) already matched FormPayload::Host before
+        // routing here, so host_from_payload always returns Some.
+        let host = host_from_payload(payload, &Self::sshc_conf_path_or_blank())
+            .expect("apply_form routes Host payloads to apply_add");
         if self.hosts.iter().any(|h| h.alias == host.alias) {
             self.status_message = Some(StatusMessage::new(format!(
                 "alias '{}' already exists",
@@ -557,17 +559,18 @@ impl App {
         }
         self.hosts.push(host);
         self.probe_states.push(ProbeState::Unknown);
-        self.persist_sshs_conf()?;
+        self.persist_sshc_conf()?;
         self.apply_filter();
         Ok(())
     }
 
     fn apply_modify(&mut self, alias: &str, payload: &FormPayload) -> Result<(), AppError> {
-        let new_host = host_from_payload(payload, &Self::sshs_conf_path_or_blank())
-            .ok_or(AppError::Storage(StorageError::LockHeldByOther))?;
+        // Caller already matched FormPayload::Host (see apply_add note).
+        let new_host = host_from_payload(payload, &Self::sshc_conf_path_or_blank())
+            .expect("apply_form routes Host payloads to apply_modify");
         if let Some(pos) = self.hosts.iter().position(|h| h.alias == alias) {
             self.hosts[pos] = new_host;
-            self.persist_sshs_conf()?;
+            self.persist_sshc_conf()?;
             self.apply_filter();
         }
         Ok(())
@@ -579,7 +582,7 @@ impl App {
             if pos < self.probe_states.len() {
                 self.probe_states.remove(pos);
             }
-            if let Err(e) = self.persist_sshs_conf() {
+            if let Err(e) = self.persist_sshc_conf() {
                 self.status_message = Some(StatusMessage::new(format!("delete failed: {e}")));
             } else {
                 self.apply_filter();
@@ -601,17 +604,20 @@ impl App {
                 });
         if let Some(host) = self.hosts.iter_mut().find(|h| h.alias == alias) {
             host.tags = normalized;
-            self.persist_sshs_conf()?;
+            self.persist_sshc_conf()?;
             self.apply_filter();
         }
         Ok(())
     }
 
-    /// Re-render the in-memory hosts that live in sshs.conf and atomically
+    /// Re-render the in-memory hosts that live in sshc.conf and atomically
     /// rewrite the file.
-    fn persist_sshs_conf(&self) -> Result<(), AppError> {
-        let path = crate::storage::sshs_conf_path()
-            .ok_or(AppError::Storage(StorageError::LockHeldByOther))?;
+    fn persist_sshc_conf(&self) -> Result<(), AppError> {
+        // sshc_conf_path() only returns None when the home directory cannot
+        // be resolved. Report that explicitly rather than disguising it as
+        // a lock-contention failure.
+        let path =
+            crate::storage::sshc_conf_path().ok_or(AppError::Setup(SetupError::HomeDirMissing))?;
         let owned_hosts: Vec<Host> = self
             .hosts
             .iter()
@@ -748,7 +754,7 @@ mod tests {
 
     #[test]
     fn test_app_enter_on_external_host_opens_editor() {
-        // make_host() seeds source_file = "/test/config" (not sshs.conf).
+        // make_host() seeds source_file = "/test/config" (not sshc.conf).
         let hosts = vec![make_host("a")];
         let mut app = App::new(hosts);
         app.handle_key(KeyEvent::from(KeyCode::Enter));
@@ -758,7 +764,7 @@ mod tests {
     #[test]
     fn test_app_enter_on_managed_host_opens_form() {
         let mut h = make_host("managed");
-        h.source_file = App::sshs_conf_path_or_blank();
+        h.source_file = App::sshc_conf_path_or_blank();
         let mut app = App::new(vec![h]);
         app.handle_key(KeyEvent::from(KeyCode::Enter));
         // Enter should open the modify form (Modal::Form). No pending action.
@@ -770,7 +776,7 @@ mod tests {
     fn test_app_m_key_unbound() {
         // 'm' is no longer a manage-mode shortcut (merged into Enter).
         let mut h = make_host("managed");
-        h.source_file = App::sshs_conf_path_or_blank();
+        h.source_file = App::sshc_conf_path_or_blank();
         let mut app = App::new(vec![h]);
         app.handle_key(KeyEvent::from(KeyCode::Char('m')));
         assert!(matches!(app.mode, AppMode::List));

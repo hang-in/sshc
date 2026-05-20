@@ -1,4 +1,4 @@
-# sshs v0.3.0 — Architect Brief (v3)
+# sshc v0.3.0 — Architect Brief (v3)
 
 > Revision of the user-supplied v0.3 draft after architect review.
 > Status: **implementation-ready spec**.
@@ -32,7 +32,7 @@
 
 ## 1. Context (recap)
 
-sshs v0.2.0 ships:
+sshc v0.2.0 ships:
 - ratatui + crossterm
 - Hand-rolled SSH config parser (cycle-protected Include, line tracking)
 - `Host::fuzzy_score` via nucleo, `Match` directive isolated, quoted/inline-comment values
@@ -42,25 +42,25 @@ sshs v0.2.0 ships:
 - `r` reconnect, mock_ssh integration tests
 - 73 automated tests, 5 regression-grep gates clean, anyhow eliminated
 
-v0.3 transforms sshs from launcher into manager.
+v0.3 transforms sshc from launcher into manager.
 
 ## 2. Goal (one sentence)
 
-Make sshs a host **manager**: users add / edit / delete hosts via TUI
+Make sshc a host **manager**: users add / edit / delete hosts via TUI
 forms, tag them, see live TCP connectivity — with a single safely-managed
-write file (`~/.ssh/config.d/sshs.conf`) and a one-time Include injection
+write file (`~/.ssh/config.d/sshc.conf`) and a one-time Include injection
 into `~/.ssh/config`.
 
 ## 3. In Scope (clarified)
 
 | # | Item | Clarification |
 |---|---|---|
-| 1 | First-run setup | Detect `~/.ssh/config` + `~/.ssh/config.d/`; create `config.d/` (0700) and `config.d/sshs.conf` (0600) if missing; if `~/.ssh/config` lacks Include for sshs.conf, prompt via modal once. Yes → **append** Include line to end of main config (see §5 Q2); No → record `declined_include_injection = true` in state.toml. **Empty-state UI**: when total host count == 0, render a centered "No hosts. Press `a` to add or `e` to open $EDITOR." Only `a`, `e`, `q` keys active. |
+| 1 | First-run setup | Detect `~/.ssh/config` + `~/.ssh/config.d/`; create `config.d/` (0700) and `config.d/sshc.conf` (0600) if missing; if `~/.ssh/config` lacks Include for sshc.conf, prompt via modal once. Yes → **append** Include line to end of main config (see §5 Q2); No → record `declined_include_injection = true` in state.toml. **Empty-state UI**: when total host count == 0, render a centered "No hosts. Press `a` to add or `e` to open $EDITOR." Only `a`, `e`, `q` keys active. |
 | 2 | Layout redesign | **5-column table**: Alias \| Account \| Host \| Port \| Status. Tags rendered as **inline `[t1,t2]` prefix on the Alias cell** (e.g. `[prod,api] web-1`). Column widths via ratatui `Constraint::Length` for Status/Port, `Constraint::Min` for Alias/Host. Account uses `Constraint::Length(12)` (truncate longer). Layout is **full-screen with 1-cell border** (no more centered_rect). Column priority for narrow terminals: Status > Alias > Host > Port > Account; columns below priority threshold are hidden left-to-right. |
 | 3 | Connectivity indicator | TCP probe per host with 2s timeout. States: `●` (TCP open) / `✕` (refused/timeout) / `?` (in-flight) / `○` (not yet probed). Color: green / red / yellow / dim grey. Refresh every **30s**. Successful `ssh_run` (SshResult::Success) bumps that host's probe state to `●` immediately (no wait for next 30s). **Semantic note in Help**: `●` means TCP-open, not "login ready"; ProxyJump-only hosts will show `✕` even if reachable indirectly. |
-| 4 | Host CRUD via TUI forms | `a` = add, `m` = modify, `d` = delete. All only operate on sshs.conf-owned hosts. External hosts: keys are no-ops; status bar shows `"Host '{alias}' defined in {path} — press 'e' to edit"` for ~3s. Form state machine in §6.6. Delete uses confirmation modal. |
-| 5 | Tags | Parser recognizes `# @tags: foo, bar` comment **immediately before** a `Host` line (no blank lines between). Tag values lower-cased + trimmed during parse. TUI shows tags inline (item 2). `/` filter syntax: bare query matches alias/hostname/tag substring; `@tag` query filters only by tag. `t` key opens single-field form to edit tags on sshs.conf-owned hosts. |
-| 6 | Source tracking | `Host::source_file` already populated in v0.2. UI: rows from non-sshs.conf files render with `Modifier::DIM` and bear a marker `· ` in the leading status column. Edit/Delete attempts on dim rows: rejected with status bar message. |
+| 4 | Host CRUD via TUI forms | `a` = add, `m` = modify, `d` = delete. All only operate on sshc.conf-owned hosts. External hosts: keys are no-ops; status bar shows `"Host '{alias}' defined in {path} — press 'e' to edit"` for ~3s. Form state machine in §6.6. Delete uses confirmation modal. |
+| 5 | Tags | Parser recognizes `# @tags: foo, bar` comment **immediately before** a `Host` line (no blank lines between). Tag values lower-cased + trimmed during parse. TUI shows tags inline (item 2). `/` filter syntax: bare query matches alias/hostname/tag substring; `@tag` query filters only by tag. `t` key opens single-field form to edit tags on sshc.conf-owned hosts. |
+| 6 | Source tracking | `Host::source_file` already populated in v0.2. UI: rows from non-sshc.conf files render with `Modifier::DIM` and bear a marker `· ` in the leading status column. Edit/Delete attempts on dim rows: rejected with status bar message. |
 
 ---
 
@@ -77,13 +77,13 @@ into `~/.ssh/config`.
 
 ## 5. Risk-Area Decisions (architect answers)
 
-### Q1 — Write safety for sshs.conf
+### Q1 — Write safety for sshc.conf
 
 **CONTRACT**:
-- **flock**: acquire LOCK_EX on the sshs.conf fd before any read-modify-write; release on Drop. Single-instance lock; if another sshs holds it, refuse the write with status bar `"sshs.conf locked by another instance"`. Implementation: `nix::fcntl::flock` (new dep) or raw libc.
-- **Atomic write**: write to `sshs.conf.tmp.<pid>` in the same directory, fsync, then `rename` to `sshs.conf`. Rename is atomic on same filesystem.
-- **Backup**: keep single `sshs.conf.bak`, overwritten on each write. (No versioned rotation; rely on git/Time Machine for history.)
-- **Stale-temp cleanup**: on startup, remove `sshs.conf.tmp.*` older than 1 hour in the config.d/ directory.
+- **flock**: acquire LOCK_EX on the sshc.conf fd before any read-modify-write; release on Drop. Single-instance lock; if another sshc holds it, refuse the write with status bar `"sshc.conf locked by another instance"`. Implementation: `nix::fcntl::flock` (new dep) or raw libc.
+- **Atomic write**: write to `sshc.conf.tmp.<pid>` in the same directory, fsync, then `rename` to `sshc.conf`. Rename is atomic on same filesystem.
+- **Backup**: keep single `sshc.conf.bak`, overwritten on each write. (No versioned rotation; rely on git/Time Machine for history.)
+- **Stale-temp cleanup**: on startup, remove `sshc.conf.tmp.*` older than 1 hour in the config.d/ directory.
 - **Failure surfacing**: write error → `StatusMessage::new("Failed to save: {e}")`. No modal — error message in status bar is enough for transient I/O issues.
 - **Recovery**: if rename fails after tempfile write, return Err. Caller (App) keeps in-memory state; user can retry. tempfile is not deleted (so user can manually salvage).
 
@@ -91,16 +91,16 @@ into `~/.ssh/config`.
 
 **CONTRACT**:
 - Direction: **append** (NOT prepend). SSH config is first-match-wins, so appending preserves user-defined main-config hosts as authoritative when aliases collide.
-- Method: read main config, scan for any line matching `Include\s+\S+` whose resolved path canonicalizes to `~/.ssh/config.d/sshs.conf`. If found → no-op. Else: append a 2-line block at end of file:
+- Method: read main config, scan for any line matching `Include\s+\S+` whose resolved path canonicalizes to `~/.ssh/config.d/sshc.conf`. If found → no-op. Else: append a 2-line block at end of file:
   ```
-  # Added by sshs; do not remove.
-  Include ~/.ssh/config.d/sshs.conf
+  # Added by sshc; do not remove.
+  Include ~/.ssh/config.d/sshc.conf
   ```
-- Idempotency: canonicalize Include paths via `dirs::home_dir()` expansion + `Path::canonicalize`. Compare to canonicalized sshs.conf path. Regex match alone is insufficient (handles `~`, relative paths, symlinks).
-- Backup: before write, copy main config to `~/.ssh/config.bak.sshs-YYYYMMDD`. Single backup per day (overwrite if exists).
+- Idempotency: canonicalize Include paths via `dirs::home_dir()` expansion + `Path::canonicalize`. Compare to canonicalized sshc.conf path. Regex match alone is insufficient (handles `~`, relative paths, symlinks).
+- Backup: before write, copy main config to `~/.ssh/config.bak.sshc-YYYYMMDD`. Single backup per day (overwrite if exists).
 - `parser.rs` line_start impact: append at EOF does NOT shift existing line numbers — safe.
 - `$XDG_CONFIG_HOME`: SSH config location is fixed at `~/.ssh/config`; state.toml uses XDG.
-- **Collision detection**: when user adds via TUI a host whose alias exists in any other parsed file, modal warns `"Alias '{alias}' already exists in {path}. Main config will take precedence. Continue?"` with Yes/No. (Append + first-match-wins means sshs's new entry is shadowed by the existing one.)
+- **Collision detection**: when user adds via TUI a host whose alias exists in any other parsed file, modal warns `"Alias '{alias}' already exists in {path}. Main config will take precedence. Continue?"` with Yes/No. (Append + first-match-wins means sshc's new entry is shadowed by the existing one.)
 
 ### Q3 — Comment-based tag parsing
 
@@ -108,8 +108,8 @@ into `~/.ssh/config`.
 - Only the comment line immediately above `Host` (no blank line between) counts as the tag line.
 - Tag line format: `# @tags: tag1, tag2, tag3`. Whitespace-tolerant. `# @tags:` (empty list) → empty tags vec.
 - Tags normalized to lowercase, trimmed, deduplicated on parse.
-- Multiple consecutive comments above `Host`: only the bottom-most one is the tag candidate; if it matches `# @tags:` syntax, it's the tag line. Earlier comments are preserved on rewrite only as part of the in-memory representation if and only if the block is in sshs.conf (see below).
-- **Write strategy**: sshs.conf-owned `Host` blocks are completely rewritten by sshs on every write. The block is regenerated as:
+- Multiple consecutive comments above `Host`: only the bottom-most one is the tag candidate; if it matches `# @tags:` syntax, it's the tag line. Earlier comments are preserved on rewrite only as part of the in-memory representation if and only if the block is in sshc.conf (see below).
+- **Write strategy**: sshc.conf-owned `Host` blocks are completely rewritten by sshc on every write. The block is regenerated as:
   ```
   # @tags: t1, t2
   Host alias
@@ -118,15 +118,15 @@ into `~/.ssh/config`.
       Port ...
       IdentityFile ...
   ```
-- This means **user-added comments inside sshs-managed blocks are NOT preserved**. sshs.conf header banner: `# Managed by sshs. Manual edits inside Host blocks may be overwritten on next save.`
+- This means **user-added comments inside sshc-managed blocks are NOT preserved**. sshc.conf header banner: `# Managed by sshc. Manual edits inside Host blocks may be overwritten on next save.`
 - External files (main config, other Include targets) are never rewritten — manual comments preserved trivially.
-- Manual user edits with non-`# @tags:` syntax in sshs.conf: ignored on parse. Next sshs save overwrites them.
+- Manual user edits with non-`# @tags:` syntax in sshc.conf: ignored on parse. Next sshc save overwrites them.
 
 ### Q4 — Source-aware editing
 
 **CONTRACT**:
 - UI: external-file rows rendered with `Modifier::DIM` and a `· ` marker in the Status column (visually distinct from `●/✕/?/○`).
-- Keys `a` (add) always allowed (creates in sshs.conf regardless of selection).
+- Keys `a` (add) always allowed (creates in sshc.conf regardless of selection).
 - Keys `m` (modify), `d` (delete), `t` (tags) on external rows: status bar message
   `"Host '{alias}' defined in {path} — press 'e' to edit"` for 3s.
 - Add collision: when committing form, scan all hosts; if same alias exists anywhere, show confirmation modal (§5 Q2). User can rename or proceed with override-warning.
@@ -162,7 +162,7 @@ into `~/.ssh/config`.
 ### Q7 — First-run state persistence
 
 **CONTRACT**:
-- File: `$XDG_CONFIG_HOME/sshs/state.toml` (fallback `~/.config/sshs/state.toml`).
+- File: `$XDG_CONFIG_HOME/sshc/state.toml` (fallback `~/.config/sshc/state.toml`).
 - Format: TOML via `serde` + `toml` crate.
 - Schema:
   ```toml
@@ -175,7 +175,7 @@ into `~/.ssh/config`.
   [memory]
   last_connected_alias = ""         # optional cross-session memory
   ```
-- Schema versioning: `version` field at top level. On future bump, sshs migrates or refuses to start with a clear message.
+- Schema versioning: `version` field at top level. On future bump, sshc migrates or refuses to start with a clear message.
 - File permission: 0600.
 - Created lazily on first state mutation.
 - Read on startup. Absent file = first run = trigger setup flow.
@@ -215,7 +215,7 @@ src/
 │   └── editor.rs
 ├── storage/                       — NEW
 │   ├── mod.rs
-│   ├── path.rs                    — resolve_sshs_conf_path, resolve_state_path
+│   ├── path.rs                    — resolve_sshc_conf_path, resolve_state_path
 │   ├── writer.rs                  — flock + atomic write + backup
 │   ├── serializer.rs              — host_blocks_to_text (with @tags)
 │   └── include_injector.rs        — idempotent append of Include line
@@ -359,11 +359,11 @@ Failed validation: don't close form; display error at modal bottom.
 ### 6.7 `src/storage/writer.rs`
 
 ```rust
-/// Acquire LOCK_EX on the sshs.conf, read it, hand the parsed content to
+/// Acquire LOCK_EX on the sshc.conf, read it, hand the parsed content to
 /// `mutator`, write the new content atomically (tempfile + rename), then
 /// drop the lock.
 ///
-/// PRE: sshs.conf exists (or will be created if create=true).
+/// PRE: sshc.conf exists (or will be created if create=true).
 /// POST: file content is replaced; permissions normalized to 0600.
 pub fn with_locked_write<F>(
     path: &Path,
@@ -373,7 +373,7 @@ pub fn with_locked_write<F>(
 where F: FnOnce(&str) -> String;
 ```
 
-`with_locked_write` is the single point of truth for sshs.conf
+`with_locked_write` is the single point of truth for sshc.conf
 modification. Form-submit handlers in App push a re-rendered content
 string into this helper.
 
@@ -386,13 +386,13 @@ pub enum InjectionResult {
     Skipped,            // user declined
 }
 
-/// Check whether ~/.ssh/config already includes sshs.conf.
+/// Check whether ~/.ssh/config already includes sshc.conf.
 /// PRE: main config path exists. POST: no side effect.
-pub fn is_include_present(main_config: &Path, sshs_conf: &Path) -> Result<bool, StorageError>;
+pub fn is_include_present(main_config: &Path, sshc_conf: &Path) -> Result<bool, StorageError>;
 
 /// Append the Include line (with header comment) to main config.
 /// Creates a dated .bak before mutating.
-pub fn inject_include(main_config: &Path, sshs_conf: &Path) -> Result<(), StorageError>;
+pub fn inject_include(main_config: &Path, sshc_conf: &Path) -> Result<(), StorageError>;
 ```
 
 ### 6.9 `src/probe/mod.rs`
@@ -446,9 +446,9 @@ impl Drop for ProbePool {
 
 ```rust
 pub enum SetupOutcome {
-    Ready,                          // hosts loaded, ready to use sshs.conf
+    Ready,                          // hosts loaded, ready to use sshc.conf
     AwaitingIncludeChoice,          // need user response via modal
-    ReadOnly,                       // user declined; sshs.conf writes disabled
+    ReadOnly,                       // user declined; sshc.conf writes disabled
 }
 
 /// Run the first-run / startup checks. Returns the outcome that drives
@@ -474,7 +474,7 @@ pub struct MemorySection {
     pub last_connected_alias: Option<String>,
 }
 
-/// Load state from $XDG_CONFIG_HOME/sshs/state.toml or default.
+/// Load state from $XDG_CONFIG_HOME/sshc/state.toml or default.
 pub fn load() -> Result<State, SetupError>;
 
 /// Atomically save state via storage::with_locked_write.
@@ -507,7 +507,7 @@ Subdivide into surgical patches (one per new field/method).
 ## 7. Migration from v0.2 to v0.3
 
 - v0.2 users have no `state.toml` → first run treats them as fresh.
-- First launch of v0.3: parser still reads `~/.ssh/config` as before, plus any Includes. Then first-run flow detects no sshs.conf, creates `config.d/sshs.conf` (empty + banner) and `config.d/`, then prompts Include injection.
+- First launch of v0.3: parser still reads `~/.ssh/config` as before, plus any Includes. Then first-run flow detects no sshc.conf, creates `config.d/sshc.conf` (empty + banner) and `config.d/`, then prompts Include injection.
 - Existing v0.2 functionality (round-trip, `r`, `★`) continues unchanged. Users opting "No" to Include get a read-only experience equal to v0.2 (just with new layout + probe).
 - `App::last_connected_alias` can optionally be hydrated from `state.toml memory` (NICE-TO-HAVE; ship if straightforward).
 
@@ -535,9 +535,9 @@ Subdivide into surgical patches (one per new field/method).
 - All v0.2 73 tests pass unchanged.
 
 ### 8.5 Manual checklist (extends docs/TESTING.md §3)
-- First-run prompt accept → main config has Include line; sshs.conf with banner
+- First-run prompt accept → main config has Include line; sshc.conf with banner
 - First-run prompt decline → state.toml has decline flag; subsequent launches skip
-- Add host via form → appears in list; sshs.conf written; correct perms
+- Add host via form → appears in list; sshc.conf written; correct perms
 - Modify host → updated; backup .bak exists
 - Delete host → confirmation modal; row removed
 - External host: `m`/`d` rejected with status message
@@ -551,7 +551,7 @@ Same v0.2 rules carry over. Additions:
 
 | Module | Owns | Forbidden |
 |---|---|---|
-| `storage/*` | sshs.conf I/O + flock + atomic write | TUI rendering, App state, exec |
+| `storage/*` | sshc.conf I/O + flock + atomic write | TUI rendering, App state, exec |
 | `setup/*` | first-run orchestration | direct UI, Command spawns |
 | `probe/*` | TCP connect probes, worker threads | App state mutation, TUI, exec |
 | `state/*` | state.toml load/save | terminal, App state mutation |
@@ -580,12 +580,12 @@ grep -lE "std::fs|std::process::Command" src/ui/forms/*.rs src/ui/modal.rs 2>/de
 Pressed via `?` key. Renders an info modal:
 
 ```
-sshs — keys
+sshc — keys
   j/k or arrows  navigate
   /              filter (use @tag to filter by tag)
   Enter          ssh into selected host
   r              reconnect to last host
-  a              add new host (sshs.conf)
+  a              add new host (sshc.conf)
   m              modify selected host
   d              delete selected host
   t              edit tags
@@ -600,7 +600,7 @@ Probe states
   ○  not yet probed.
 
 Read-only rows are dim and marked "·". They are defined in files
-other than ~/.ssh/config.d/sshs.conf; use 'e' to edit them.
+other than ~/.ssh/config.d/sshc.conf; use 'e' to edit them.
 
 ProxyJump-only hosts cannot be probed directly and will show ✕.
 ```
@@ -610,7 +610,7 @@ ProxyJump-only hosts cannot be probed directly and will show ✕.
 1. **flock holds a file descriptor**: keep the lock-holding `File` in scope until rename is complete.
 2. **Tempfile in same dir as target**: rename across filesystems is not atomic.
 3. **`canonicalize` requires the file to exist**: when checking Include presence for a path that may not exist, canonicalize the *parent dir* + manually compose the basename.
-4. **`fcntl::flock` is advisory**: cooperative — only sshs respects it. If user opens sshs.conf in vi while sshs writes, vi will overwrite on save. Document but don't engineer around.
+4. **`fcntl::flock` is advisory**: cooperative — only sshc respects it. If user opens sshc.conf in vi while sshc writes, vi will overwrite on save. Document but don't engineer around.
 5. **Probe `TcpStream::connect_timeout`**: requires `SocketAddr`. DNS resolution via `format!("{}:{}", host, port).to_socket_addrs()` — itself synchronous, so do it inside the worker. Resolution failure → ProbeState::Failed.
 6. **ratatui `TestBackend` for snapshot tests**: pin the backend size; otherwise snapshot is flaky.
 7. **AppMode::Modal short-circuits handle_key**: ensure `q` / `Esc` reach the modal first; only the modal decides whether to exit.
@@ -622,7 +622,7 @@ ProxyJump-only hosts cannot be probed directly and will show ✕.
 
 | Decision | Status | Note |
 |---|---|---|
-| sshs.conf only writable file | ✅ kept |
+| sshc.conf only writable file | ✅ kept |
 | `# @tags:` syntax | ✅ kept |
 | std::thread + mpsc | ✅ kept |
 | Channel-pushed probe results | ✅ kept |

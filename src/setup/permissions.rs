@@ -42,7 +42,7 @@ mod tests {
 
     fn unique_temp_path(label: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!(
-            "sshs_perm_{}_{}_{}.tmp",
+            "sshc_perm_{}_{}_{}.tmp",
             label,
             std::process::id(),
             std::time::SystemTime::now()

@@ -95,7 +95,7 @@ impl fmt::Display for StorageError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             StorageError::LockFailed(e) => write!(f, "failed to acquire lock: {e}"),
-            StorageError::LockHeldByOther => write!(f, "sshs.conf locked by another instance"),
+            StorageError::LockHeldByOther => write!(f, "sshc.conf locked by another instance"),
             StorageError::ReadFailed(e) => write!(f, "failed to read: {e}"),
             StorageError::WriteFailed(e) => write!(f, "failed to write: {e}"),
             StorageError::RenameFailed(e) => write!(f, "failed to commit write (rename): {e}"),
