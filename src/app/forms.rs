@@ -101,6 +101,90 @@ impl App {
         self.mode = super::AppMode::Modal(ModalKind::Form(Box::new(form)));
     }
 
+    /// v0.8 G2: open the add/modify form pre-filled with the fields of
+    /// an external host so that its saved form lands in `sshc.conf` as a
+    /// brand-new entry. The original `~/.ssh/config` line is **never**
+    /// touched — anti-feature 1 stands. Three early-exit branches:
+    ///
+    /// - the alias is already present in `sshc.conf` → status hint and
+    ///   the form does not open (would be an immediate `apply_add`
+    ///   collision anyway).
+    /// - the alias contains an SSH wildcard (`*`, `?`) → status hint
+    ///   and the form does not open. Wildcard hosts can't be promoted
+    ///   into sshc.conf because sshc only manages explicit aliases
+    ///   (anti-feature 5: no full `config(5)` parser).
+    /// - read-only or alias not found → silent no-op (matches the
+    ///   other `open_*_form` methods).
+    ///
+    /// On success the form opens with `FormContext::PromoteHost(alias)`
+    /// and submission flows through the same `apply_add` write path as
+    /// any other new sshc.conf entry.
+    pub fn open_promote_form(&mut self, alias: &str) {
+        if self.is_read_only() {
+            self.status_message = Some(StatusMessage::new(
+                "read-only — press 'i' to add Include line and enable promote",
+            ));
+            return;
+        }
+        // Wildcards bypass the lookup-by-alias check below (a literal
+        // `*` rarely matches a parsed host), so test the string up
+        // front.
+        if alias.contains('*') || alias.contains('?') {
+            self.status_message = Some(StatusMessage::new(format!(
+                "wildcard alias '{alias}' cannot be promoted — sshc only manages explicit aliases"
+            )));
+            return;
+        }
+        // Look the host up rather than trusting the selection — the
+        // list may have shifted between the `M` keystroke and runtime
+        // dispatch (e.g. user typed into the filter mid-flight).
+        let sshc_conf = self.sshc_conf_path_or_blank();
+        let Some(host) = self.hosts.iter().find(|h| h.alias == alias).cloned() else {
+            return;
+        };
+        if host.source_file == sshc_conf {
+            self.status_message = Some(StatusMessage::new(format!(
+                "'{alias}' already managed by sshc.conf"
+            )));
+            return;
+        }
+        if self
+            .hosts
+            .iter()
+            .any(|h| h.alias == alias && h.source_file == sshc_conf)
+        {
+            // Defensive: the find() above returned an external row, but
+            // there's *also* an sshc.conf-side entry with the same
+            // alias. That's a duplicate-alias situation OpenSSH itself
+            // wouldn't disambiguate cleanly — bail out so we don't
+            // silently shadow it.
+            self.status_message = Some(StatusMessage::new(format!(
+                "'{alias}' already exists in sshc.conf — promote aborted"
+            )));
+            return;
+        }
+        let port_str = host.port.map(|p| p.to_string()).unwrap_or_default();
+        let identity = host
+            .identity_file
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        let tags_csv = host.tags.join(", ");
+        let extra_joined = host.extra.join("; ");
+        let form = crate::ui::forms::HostForm::from_host(
+            &host.alias,
+            host.hostname.as_deref().unwrap_or(""),
+            host.user.as_deref().unwrap_or(""),
+            &port_str,
+            &identity,
+            &tags_csv,
+            &extra_joined,
+            discover_identity_files(),
+        );
+        self.active_form_context = Some(FormContext::PromoteHost(host.alias.clone()));
+        self.mode = super::AppMode::Modal(ModalKind::Form(Box::new(form)));
+    }
+
     pub(super) fn open_tag_form(&mut self) {
         if self.is_read_only() {
             self.status_message = Some(StatusMessage::new(
@@ -191,6 +275,22 @@ impl App {
             (FormContext::EditTags(alias), FormPayload::Tags { tags_csv }) => {
                 self.apply_tags(&alias, &tags_csv)
             }
+            (
+                FormContext::PromoteHost(original_alias),
+                FormPayload::Host {
+                    alias,
+                    hostname,
+                    user,
+                    port,
+                    identity_file,
+                    tags_csv,
+                    extra,
+                },
+            ) => {
+                let host =
+                    self.build_host(alias, hostname, user, port, identity_file, tags_csv, extra);
+                self.apply_promote(&original_alias, host)
+            }
             _ => Ok(()),
         };
         match result {
@@ -269,6 +369,43 @@ impl App {
                 "'{alias_for_msg}' saved without IdentityFile — ssh will use agent or password prompt"
             )));
         }
+        Ok(())
+    }
+
+    /// Promotion save: the user submitted a form opened via
+    /// `open_promote_form`. The write path is exactly `apply_add`
+    /// (append + persist sshc.conf), but the status message reminds
+    /// them that the original `~/.ssh/config` entry is still there and
+    /// will produce duplicate `ssh -G` lines until they delete it
+    /// themselves. `original_alias` is the alias under which the host
+    /// lived in the external source; the form can rename it during
+    /// promote (no constraint).
+    fn apply_promote(&mut self, original_alias: &str, host: Host) -> Result<(), AppError> {
+        if self
+            .hosts
+            .iter()
+            .any(|h| h.alias == host.alias && h.source_file == self.sshc_conf_path_or_blank())
+        {
+            self.status_message = Some(StatusMessage::new(format!(
+                "'{}' already exists in sshc.conf — promote aborted",
+                host.alias
+            )));
+            return Ok(());
+        }
+        let new_alias = host.alias.clone();
+        self.hosts.push(host);
+        self.probe_states.push(ProbeState::Unknown);
+        self.persist_sshc_conf()?;
+        self.apply_filter();
+        self.validation_cache.clear();
+        let rename_note = if new_alias == original_alias {
+            String::new()
+        } else {
+            format!(" (renamed from '{original_alias}')")
+        };
+        self.status_message = Some(StatusMessage::new(format!(
+            "'{new_alias}' promoted to sshc.conf{rename_note} — original ~/.ssh/config entry left intact, delete it manually if duplicate ssh -G output bothers you"
+        )));
         Ok(())
     }
 

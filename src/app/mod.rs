@@ -39,6 +39,11 @@ pub(super) enum FormContext {
     AddHost,
     EditHost(String),
     EditTags(String),
+    /// Promote an external host (originally from `~/.ssh/config` or one
+    /// of its Includes) into a fresh sshc.conf entry. Save semantics
+    /// match `AddHost`; only the status message differs so the user
+    /// understands the original entry was left intact.
+    PromoteHost(String),
 }
 
 /// Application state for the TUI.

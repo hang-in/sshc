@@ -152,6 +152,69 @@ fn test_app_promote_m_in_read_only_emits_hint_no_action() {
 }
 
 #[test]
+fn test_open_promote_form_wildcard_alias_rejected() {
+    // Even if a wildcard somehow made it into the host list, promote
+    // refuses to open a form for it — sshc.conf can't express the
+    // pattern the user thinks they're carrying over.
+    let mut h = make_host("prod-*");
+    // source_file stays at the make_host default (/test/config), which
+    // is treated as external.
+    h.alias = "prod-*".to_string();
+    let mut app = App::new(vec![h]);
+    app.open_promote_form("prod-*");
+    // Mode stays in List, status carries the wildcard hint.
+    assert!(matches!(app.mode, AppMode::List));
+    let msg = app
+        .status_message
+        .as_ref()
+        .expect("expected wildcard rejection hint")
+        .text();
+    assert!(
+        msg.contains("wildcard"),
+        "expected wildcard rejection, got {msg:?}"
+    );
+}
+
+#[test]
+fn test_open_promote_form_external_host_opens_with_promote_context() {
+    // make_host() seeds source_file = "/test/config" — external.
+    let mut app = App::new(vec![make_host("borrowed")]);
+    app.open_promote_form("borrowed");
+    assert!(matches!(app.mode, AppMode::Modal(ModalKind::Form(_))));
+    assert!(matches!(
+        app.active_form_context,
+        Some(FormContext::PromoteHost(ref a)) if a == "borrowed"
+    ));
+}
+
+#[test]
+fn test_open_promote_form_on_managed_host_rejects() {
+    let mut h = make_host("already-mine");
+    h.source_file = crate::storage::sshc_conf_path().unwrap_or_default();
+    let mut app = App::new(vec![h]);
+    app.open_promote_form("already-mine");
+    // No form opens — still in List mode with a clear hint.
+    assert!(matches!(app.mode, AppMode::List));
+    let msg = app
+        .status_message
+        .as_ref()
+        .expect("expected 'already managed' hint")
+        .text();
+    assert!(msg.contains("already managed"), "got {msg:?}");
+}
+
+#[test]
+fn test_open_promote_form_alias_not_found_silent_noop() {
+    let app_before = App::new(vec![make_host("borrowed")]);
+    let mut app = App::new(vec![make_host("borrowed")]);
+    app.open_promote_form("does-not-exist");
+    assert!(matches!(app.mode, AppMode::List));
+    assert!(app.status_message.is_none());
+    // sanity: hosts list unchanged.
+    assert_eq!(app.hosts.len(), app_before.hosts.len());
+}
+
+#[test]
 fn test_app_initial_last_connected_none() {
     let app = App::new(vec![]);
     assert!(app.last_connected.is_none());

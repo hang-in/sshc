@@ -148,15 +148,8 @@ pub fn manage() -> Result<ExitCode, AppError> {
             Some(AppAction::DeclineInclude) => {
                 let _ = state::save(&app.state);
             }
-            Some(AppAction::OpenPromoteForm(_alias)) => {
-                // R3 wires the `M` keystroke and the action payload, but
-                // the form prefill + sshc.conf write path lands in R4.
-                // Swallow the action for now so the routing is reachable
-                // without dragging half-finished UX onto master; the unit
-                // test on `promote_selected` covers the routing itself.
-                app.status_message = Some(StatusMessage::new(
-                    "promote: form lands in v0.8 R4 — routing is wired",
-                ));
+            Some(AppAction::OpenPromoteForm(alias)) => {
+                app.open_promote_form(&alias);
             }
         }
     }
