@@ -5,7 +5,9 @@
 //! Prints `PASS` / `WARN` / `FAIL` per check and exits 0 unless any
 //! check is `FAIL`. Never mutates state.
 
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::{Command, ExitCode};
 
 #[cfg(unix)]
@@ -205,6 +207,7 @@ fn check_ssh_binary() -> Check {
     }
 }
 
+#[cfg(unix)]
 fn check_ssh_auth_sock() -> Check {
     match std::env::var("SSH_AUTH_SOCK") {
         Ok(p) if !p.is_empty() => Check {
@@ -212,30 +215,111 @@ fn check_ssh_auth_sock() -> Check {
             status: Status::Pass,
             detail: format!("set ({})", short_path(Path::new(&p))),
         },
-        _ => {
-            #[cfg(unix)]
-            {
-                Check {
-                    name: "SSH_AUTH_SOCK",
-                    status: Status::Warn,
-                    detail: "not set — ssh-agent identities won't be available".into(),
-                }
-            }
-            #[cfg(not(unix))]
-            {
-                // Windows uses named pipes for the OpenSSH agent and
-                // Pageant for PuTTY/WinSCP. SSH_AUTH_SOCK is irrelevant
-                // there. Report informationally rather than as a WARN.
-                Check {
-                    name: "SSH_AUTH_SOCK",
-                    status: Status::Pass,
-                    detail: "Windows: not applicable (use Windows OpenSSH agent or Pageant)".into(),
-                }
-            }
-        }
+        _ => Check {
+            name: "SSH_AUTH_SOCK",
+            status: Status::Warn,
+            detail: "not set — ssh-agent identities won't be available".into(),
+        },
     }
 }
 
+#[cfg(windows)]
+fn check_ssh_auth_sock() -> Check {
+    // On Windows, `SSH_AUTH_SOCK` is the wrong signal: agents communicate
+    // over named pipes, not Unix sockets. v0.7 reported `not applicable`
+    // unconditionally; v0.8 actually probes the two well-known pipe
+    // names. Identity enumeration is explicitly out of scope (anti-features
+    // 1 + 2) — presence only.
+    const OPENSSH_PIPE: &str = r"\\.\pipe\openssh-ssh-agent";
+    const PAGEANT_PIPE: &str = r"\\.\pipe\pageant";
+    let openssh = windows_agent_pipe_present(OPENSSH_PIPE);
+    let pageant = windows_agent_pipe_present(PAGEANT_PIPE);
+    match (openssh, pageant) {
+        (true, true) => Check {
+            name: "SSH_AUTH_SOCK",
+            status: Status::Pass,
+            detail: "Windows OpenSSH agent + Pageant pipes present".into(),
+        },
+        (true, false) => Check {
+            name: "SSH_AUTH_SOCK",
+            status: Status::Pass,
+            detail: format!("Windows OpenSSH agent pipe present ({OPENSSH_PIPE})"),
+        },
+        (false, true) => Check {
+            name: "SSH_AUTH_SOCK",
+            status: Status::Pass,
+            detail: format!("Pageant pipe present ({PAGEANT_PIPE})"),
+        },
+        (false, false) => Check {
+            name: "SSH_AUTH_SOCK",
+            status: Status::Warn,
+            detail: "no agent pipe found — start Windows OpenSSH agent \
+                     (`Start-Service ssh-agent`) or run Pageant"
+                .into(),
+        },
+    }
+}
+
+/// Windows-only: probe a named-pipe path with `CreateFileW(OPEN_EXISTING)`.
+/// Any open failure (`ERROR_FILE_NOT_FOUND`, `ERROR_PIPE_NOT_CONNECTED`,
+/// access denied, etc.) is treated as "pipe not available" — sshc only
+/// asks "is something listening on this name", not "can I talk to it".
+/// On success the handle is immediately closed.
+#[cfg(windows)]
+fn windows_agent_pipe_present(path: &str) -> bool {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, FILE_ATTRIBUTE_NORMAL, OPEN_EXISTING,
+    };
+
+    // GENERIC_READ from `windows-sys` lives under `Win32_System_SystemServices`,
+    // which we don't pull in. Define the constant locally; it's stable.
+    const GENERIC_READ: u32 = 0x8000_0000;
+
+    let wide: Vec<u16> = OsStr::new(path)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
+    let handle = unsafe {
+        CreateFileW(
+            wide.as_ptr(),
+            GENERIC_READ,
+            0,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            std::ptr::null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return false;
+    }
+    unsafe {
+        CloseHandle(handle);
+    }
+    true
+}
+
+#[cfg(all(test, windows))]
+mod windows_agent_tests {
+    use super::windows_agent_pipe_present;
+
+    #[test]
+    fn nonexistent_pipe_returns_false() {
+        // A name that no Windows component should ever claim. If this
+        // returns `true`, either CI is running a process called
+        // "sshc-doctor-nonexistent-…" (vanishingly unlikely) or the
+        // function has stopped doing what it advertises.
+        assert!(!windows_agent_pipe_present(
+            r"\\.\pipe\sshc-doctor-no-such-pipe-1d3f9b"
+        ));
+    }
+}
+
+#[cfg(unix)]
 fn short_path(p: &Path) -> String {
     let s = p.display().to_string();
     if s.len() > 50 {
