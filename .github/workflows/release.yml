@@ -44,6 +44,18 @@ on:
     tags:
       - '**[0-9]+.[0-9]+.[0-9]+*'
 
+# MANUAL EDIT — DO NOT remove on `dist generate`.
+# Observed in v0.7.2: a single tag push (e.g. `git push origin v0.7.2`)
+# briefly spawned TWO concurrent Release workflow runs against the same
+# ref/SHA; the slower one failed at `gh release create` with "release
+# with the same tag name already exists". Grouping by `github.ref`
+# serializes runs for the same tag without killing legitimate parallel
+# PR builds (each PR has its own ref). `cancel-in-progress: false` so
+# the late-arriving twin queues rather than aborts.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # Run 'dist plan' (or host) to determine what tasks we need to do
   plan:
