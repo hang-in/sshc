@@ -37,17 +37,31 @@ fn exit_code_from(result: SshResult) -> ExitCode {
 
 /// v0.4 inline mode: lean fzf-style host browser. Process exits after the
 /// first ssh round-trip (or immediately on Quit) — the UI is never resumed.
+///
+/// The viewport is sized to the actual host count plus chrome (header +
+/// 2-line status), clamped to `[5, viewport_height]`. This avoids the
+/// fixed-15-row reservation that pushed the shell prompt far up the
+/// scrollback buffer when the host list was short.
 pub fn inline(viewport_height: u16) -> Result<ExitCode, AppError> {
     let mut app_state = state::load().unwrap_or_default();
     let hosts = parse_config(&config_path());
+
+    // Header + 2-row status block = 3 chrome rows.
+    let chrome: u16 = 3;
+    let min_viewport: u16 = 5;
+    let host_count = hosts.len() as u16;
+    let effective_viewport = host_count
+        .saturating_add(chrome)
+        .clamp(min_viewport, viewport_height);
+
     let mut app = InlineApp::new_with_state(hosts, &app_state);
 
-    let mut guard = TerminalGuard::acquire(ScreenMode::Inline(viewport_height))?;
+    let mut guard = TerminalGuard::acquire(ScreenMode::Inline(effective_viewport))?;
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::with_options(
         backend,
         TerminalOptions {
-            viewport: Viewport::Inline(viewport_height),
+            viewport: Viewport::Inline(effective_viewport),
         },
     )?;
 
