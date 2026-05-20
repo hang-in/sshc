@@ -159,19 +159,23 @@ fn set_owner_only_perms(path: &Path) -> Result<(), StorageError> {
     use windows_sys::Win32::Foundation::{LocalFree, ERROR_SUCCESS, HLOCAL};
     use windows_sys::Win32::Security::Authorization::{
         GetNamedSecurityInfoW, SetEntriesInAclW, SetNamedSecurityInfoW, EXPLICIT_ACCESS_W,
-        GRANT_ACCESS, NO_INHERITANCE, SE_FILE_OBJECT, TRUSTEE_IS_SID, TRUSTEE_IS_USER, TRUSTEE_W,
+        GRANT_ACCESS, SE_FILE_OBJECT, TRUSTEE_IS_SID, TRUSTEE_IS_USER, TRUSTEE_W,
     };
     use windows_sys::Win32::Security::{
-        AllocateAndInitializeSid, FreeSid, ACL, DACL_SECURITY_INFORMATION, DOMAIN_ALIAS_RID_ADMINS,
+        AllocateAndInitializeSid, FreeSid, ACL, DACL_SECURITY_INFORMATION,
         OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
-        PSID, SECURITY_BUILTIN_DOMAIN_RID, SECURITY_LOCAL_SYSTEM_RID, SECURITY_NT_AUTHORITY,
-        SID_IDENTIFIER_AUTHORITY,
+        PSID, SECURITY_NT_AUTHORITY, SID_IDENTIFIER_AUTHORITY,
     };
 
-    // GENERIC_ALL — defined under Win32_Storage_FileSystem in some
-    // releases of windows-sys; pin the value locally so we don't
-    // depend on which sub-feature happens to re-export it.
+    // windows-sys 0.59 doesn't re-export several SDK-stable constants
+    // under predictable module paths, so we pin the canonical values
+    // locally. These come from <sdkddkver.h> / <winnt.h> and have been
+    // stable since Win2k.
     const GENERIC_ALL: u32 = 0x1000_0000;
+    const NO_INHERITANCE: u32 = 0;
+    const SECURITY_LOCAL_SYSTEM_RID: u32 = 0x12;
+    const SECURITY_BUILTIN_DOMAIN_RID: u32 = 0x20;
+    const DOMAIN_ALIAS_RID_ADMINS: u32 = 0x220;
 
     let wide: Vec<u16> = OsStr::new(path)
         .encode_wide()
@@ -203,10 +207,11 @@ fn set_owner_only_perms(path: &Path) -> Result<(), StorageError> {
 
     // -- Step 2: build the two well-known SIDs (SYSTEM, Local
     //    Administrators). Both come back as caller-owned blocks that
-    //    must be released with FreeSid.
-    let mut nt_authority: SID_IDENTIFIER_AUTHORITY = SID_IDENTIFIER_AUTHORITY {
-        Value: SECURITY_NT_AUTHORITY,
-    };
+    //    must be released with FreeSid. `SECURITY_NT_AUTHORITY` is
+    //    already an `SID_IDENTIFIER_AUTHORITY` value in windows-sys
+    //    0.59, so we copy it into a mutable local for the &mut
+    //    parameter rather than wrap it once more.
+    let mut nt_authority: SID_IDENTIFIER_AUTHORITY = SECURITY_NT_AUTHORITY;
     let mut system_sid: PSID = ptr::null_mut();
     let mut admins_sid: PSID = ptr::null_mut();
 
@@ -214,7 +219,7 @@ fn set_owner_only_perms(path: &Path) -> Result<(), StorageError> {
         AllocateAndInitializeSid(
             &mut nt_authority,
             1,
-            SECURITY_LOCAL_SYSTEM_RID as u32,
+            SECURITY_LOCAL_SYSTEM_RID,
             0,
             0,
             0,
@@ -229,8 +234,8 @@ fn set_owner_only_perms(path: &Path) -> Result<(), StorageError> {
         AllocateAndInitializeSid(
             &mut nt_authority,
             2,
-            2, // SECURITY_BUILTIN_DOMAIN_RID
-            DOMAIN_ALIAS_RID_ADMINS as u32,
+            SECURITY_BUILTIN_DOMAIN_RID,
+            DOMAIN_ALIAS_RID_ADMINS,
             0,
             0,
             0,
@@ -240,10 +245,6 @@ fn set_owner_only_perms(path: &Path) -> Result<(), StorageError> {
             &mut admins_sid,
         )
     };
-    // SECURITY_BUILTIN_DOMAIN_RID is a const in windows-sys; reference it
-    // so a future rename surfaces as a compile break instead of a silent
-    // ACL fallback.
-    let _ = SECURITY_BUILTIN_DOMAIN_RID;
     if ok_system == 0 || ok_admins == 0 {
         let err = std::io::Error::last_os_error();
         unsafe {
