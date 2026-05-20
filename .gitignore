@@ -2,3 +2,12 @@
 *.swp
 *.swo
 .DS_Store
+
+# Internal dev docs (not shipped to GitHub UI)
+BRIEF_*.md
+PLAN_V*.md
+DEBUG_PLAN.md
+docs/REFACTOR_NOTES.md
+
+# Context-mode / external reference caches
+.omc/
