@@ -110,7 +110,7 @@ pub fn host_table_constraints_for(
         cols.push(Constraint::Length(widths.port + pad));
     }
     cols.push(Constraint::Min(2)); // spacer pushes Status to the right edge
-    cols.push(Constraint::Length(2)); // Status
+    cols.push(Constraint::Length(3)); // Status: probe + ' ' + marker
     cols
 }
 
@@ -136,7 +136,7 @@ impl ColumnWidths {
             col_count += 1;
         }
         total += 2; // spacer minimum
-        total += 2; // Status
+        total += 3; // Status (probe + ' ' + marker)
         col_count += 2;
         // Inter-column spacing.
         total + (col_count as u16).saturating_sub(1)

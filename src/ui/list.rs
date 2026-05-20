@@ -152,7 +152,11 @@ fn account_cell(host: &Host, fallback_user: &str) -> Cell<'static> {
     }
 }
 
-/// Status cell encoded as 2-character `<probe><marker>`:
+/// Status cell encoded as 3-character `<probe> <marker>`. The two halves
+/// carry independent meanings — the probe glyph reflects TCP reachability
+/// (computed by the background worker pool), the marker tracks the last
+/// connection / external-source state. The mid space disambiguates them.
+///
 /// - probe glyph: ● Open / ○ Failed / ◌ InFlight / ' ' Unknown
 /// - marker priority: ★ (last_connected) > · (external source) > space
 fn status_cell(
@@ -189,7 +193,7 @@ fn status_cell(
         _ => Style::default(),
     };
     let marker_span = Span::styled(marker.to_string(), marker_style);
-    Cell::from(Line::from(vec![probe_span, marker_span]))
+    Cell::from(Line::from(vec![probe_span, Span::raw(" "), marker_span]))
 }
 
 /// Title-bar text shown in the outer block (e.g., " sshs (12) ").
