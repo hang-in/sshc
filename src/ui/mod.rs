@@ -2,9 +2,10 @@ pub mod forms;
 pub mod layout;
 pub mod list;
 pub mod modal;
+pub mod preview;
 pub mod status_bar;
 
-use ratatui::layout::{Alignment, Rect};
+use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
@@ -26,6 +27,13 @@ const MAX_PANEL_HEIGHT: u16 = 32;
 const PANEL_CHROME_HEIGHT: u16 = 5;
 /// Border + 1 cell padding on each side.
 const PANEL_CHROME_WIDTH: u16 = 2;
+/// v0.6: manage-mode preview panel shows host detail to the right of
+/// the host table when the terminal is at least this wide. Below the
+/// threshold, the preview is hidden and the layout falls back to the
+/// pre-v0.6 single-pane look.
+const PREVIEW_MIN_TERMINAL_WIDTH: u16 = 100;
+/// Width of the preview pane itself (separator border included).
+const PREVIEW_PANE_WIDTH: u16 = 36;
 
 /// Renders the entire TUI. Panel is centered and sized to the data:
 /// width matches the widest row content (clamped to MIN/MAX), height
@@ -47,18 +55,35 @@ pub fn render(f: &mut Frame, app: &App) {
     let fallback_user = list::fallback_user();
     let widths = list::compute_column_widths(app, &fallback_user);
 
-    // Decide visibility based on the *available* width: if the terminal is
-    // wide enough to fit every column, show them all; otherwise hide
-    // priority-by-priority.
-    let available_inner = size.width.saturating_sub(PANEL_CHROME_WIDTH);
+    // v0.6: show the right-side preview pane only when (a) the terminal
+    // is wide enough that the host table doesn't have to shed columns,
+    // (b) we're in the list view (modal forms don't share screen space),
+    // and (c) there's actually a selected host to describe.
+    let show_preview = matches!(app.mode, AppMode::List)
+        && size.width >= PREVIEW_MIN_TERMINAL_WIDTH
+        && app.selected_host().is_some();
+    let preview_pane = if show_preview { PREVIEW_PANE_WIDTH } else { 0 };
+
+    // Visibility is based on the table's share of the panel, not the
+    // whole terminal — so the preview pane "borrowing" 36 cells doesn't
+    // change which columns the table shows.
+    let available_inner = size.width.saturating_sub(PANEL_CHROME_WIDTH + preview_pane);
     let visibility = ColumnVisibility::for_width(available_inner);
 
-    // Compute the desired panel size from the data.
-    let desired_width = widths.total_with_pad(&visibility) + PANEL_CHROME_WIDTH;
+    // Compute the desired panel size from the data, then add the preview
+    // pane width if it'll be drawn.
+    let desired_width = widths.total_with_pad(&visibility) + PANEL_CHROME_WIDTH + preview_pane;
     let desired_height = (app.host_count() as u16).saturating_add(PANEL_CHROME_HEIGHT);
 
+    // When the preview pane is visible the natural max grows so the
+    // table + preview both fit; otherwise the v0.5 cap stays.
+    let max_width = if show_preview {
+        MAX_PANEL_WIDTH + PREVIEW_PANE_WIDTH
+    } else {
+        MAX_PANEL_WIDTH
+    };
     let panel_width = desired_width
-        .clamp(MIN_PANEL_WIDTH, MAX_PANEL_WIDTH)
+        .clamp(MIN_PANEL_WIDTH, max_width)
         .min(size.width);
     let panel_height = desired_height
         .clamp(MIN_PANEL_HEIGHT, MAX_PANEL_HEIGHT)
@@ -76,13 +101,29 @@ pub fn render(f: &mut Frame, app: &App) {
 
     let (table_area, status_area) = host_panel_layout(inner);
 
-    let (table, mut state) = list::create_host_table(app, table_area.width);
+    // Split the table strip horizontally if the preview pane is on.
+    let (list_area, preview_area) = if show_preview {
+        let chunks = Layout::horizontal([
+            Constraint::Min(MIN_PANEL_WIDTH - PANEL_CHROME_WIDTH),
+            Constraint::Length(PREVIEW_PANE_WIDTH),
+        ])
+        .split(table_area);
+        (chunks[0], Some(chunks[1]))
+    } else {
+        (table_area, None)
+    };
+
+    let (table, mut state) = list::create_host_table(app, list_area.width);
     let table = table.row_highlight_style(
         Style::default()
             .add_modifier(Modifier::REVERSED)
             .add_modifier(Modifier::BOLD),
     );
-    f.render_stateful_widget(table, table_area, &mut state);
+    f.render_stateful_widget(table, list_area, &mut state);
+
+    if let (Some(area), Some(host)) = (preview_area, app.selected_host()) {
+        preview::render_preview(host, area, f);
+    }
 
     let visible_msg = app.status_message.as_ref().filter(|m| m.is_visible());
     let (status_text, status_style) = if let Some(msg) = visible_msg {
