@@ -1,4 +1,5 @@
 use super::*;
+use crossterm::event::{KeyCode, KeyEvent};
 use std::path::PathBuf;
 
 fn make_host(alias: &str) -> Host {
