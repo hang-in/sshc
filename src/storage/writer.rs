@@ -1,24 +1,30 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
-use std::os::unix::fs::PermissionsExt;
-use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::process;
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
+use std::os::unix::io::AsRawFd;
+
+#[cfg(unix)]
 use nix::errno::Errno;
+#[cfg(unix)]
 #[allow(deprecated)]
 use nix::fcntl::{flock, FlockArg};
 
 use crate::error::StorageError;
 
-/// Acquire LOCK_EX on the target path, read content, hand to `mutator`,
-/// write the new content atomically (tempfile + rename). Drops the
-/// lock when this function returns.
+/// Acquire an exclusive (advisory on Unix, mandatory on Windows) lock
+/// on the target path, read content, hand to `mutator`, write the new
+/// content atomically (tempfile + rename). Drops the lock when this
+/// function returns.
 ///
 /// - If `create` is false and the file does not exist, returns Err(ReadFailed).
 /// - If `create` is true and the file does not exist, treats existing content as "".
 /// - If another process holds the lock, returns Err(LockHeldByOther).
-/// - Sets 0600 permissions on the result.
+/// - Sets 0600 permissions on the result (no-op on Windows; v0.7 defers ACL work).
 pub fn with_locked_write<F>(path: &Path, create: bool, mutator: F) -> Result<(), StorageError>
 where
     F: FnOnce(&str) -> String,
@@ -35,12 +41,7 @@ where
         File::open(path).map_err(StorageError::ReadFailed)?
     };
 
-    #[allow(deprecated)]
-    flock(file.as_raw_fd(), FlockArg::LockExclusiveNonblock).map_err(|e| match e {
-        // On all current Unix targets EAGAIN == EWOULDBLOCK, so matching one is enough.
-        Errno::EAGAIN => StorageError::LockHeldByOther,
-        other => StorageError::LockFailed(std::io::Error::from_raw_os_error(other as i32)),
-    })?;
+    try_lock_exclusive(&file)?;
 
     let content = if path.exists() {
         let mut s = String::new();
@@ -63,17 +64,73 @@ where
         tmp.sync_all().map_err(StorageError::WriteFailed)?;
     }
 
-    fs::set_permissions(&tmp_path, fs::Permissions::from_mode(0o600))
-        .map_err(StorageError::WriteFailed)?;
+    set_owner_only_perms(&tmp_path)?;
 
     fs::rename(&tmp_path, path).map_err(StorageError::RenameFailed)?;
 
-    // file goes out of scope here, releasing the flock.
+    // file goes out of scope here, releasing the lock.
     drop(file);
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(unix)]
+fn try_lock_exclusive(file: &File) -> Result<(), StorageError> {
+    #[allow(deprecated)]
+    flock(file.as_raw_fd(), FlockArg::LockExclusiveNonblock).map_err(|e| match e {
+        // On all current Unix targets EAGAIN == EWOULDBLOCK, so matching one is enough.
+        Errno::EAGAIN => StorageError::LockHeldByOther,
+        other => StorageError::LockFailed(std::io::Error::from_raw_os_error(other as i32)),
+    })
+}
+
+#[cfg(windows)]
+fn try_lock_exclusive(file: &File) -> Result<(), StorageError> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Foundation::{GetLastError, ERROR_LOCK_VIOLATION};
+    use windows_sys::Win32::Storage::FileSystem::{
+        LockFileEx, LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY,
+    };
+    use windows_sys::Win32::System::IO::OVERLAPPED;
+
+    // Lock the entire file (0..u32::MAX,u32::MAX) — equivalent to an
+    // advisory whole-file flock for sshc's single-writer use case.
+    let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
+    let ok = unsafe {
+        LockFileEx(
+            file.as_raw_handle() as _,
+            LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+            0,
+            u32::MAX,
+            u32::MAX,
+            &mut overlapped,
+        )
+    };
+    if ok == 0 {
+        let code = unsafe { GetLastError() };
+        if code == ERROR_LOCK_VIOLATION {
+            return Err(StorageError::LockHeldByOther);
+        }
+        return Err(StorageError::LockFailed(std::io::Error::from_raw_os_error(
+            code as i32,
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_owner_only_perms(path: &Path) -> Result<(), StorageError> {
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(StorageError::WriteFailed)
+}
+
+#[cfg(not(unix))]
+fn set_owner_only_perms(_path: &Path) -> Result<(), StorageError> {
+    // Windows: Unix 0600 has no direct equivalent. ACL enforcement is
+    // out of scope for v0.7 — we still write the file, just without
+    // permission tightening. Defaults inherit from the parent.
+    Ok(())
+}
+
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use assert_fs::prelude::*;

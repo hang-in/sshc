@@ -5,9 +5,11 @@
 //! Prints `PASS` / `WARN` / `FAIL` per check and exits 0 unless any
 //! check is `FAIL`. Never mutates state.
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 #[derive(Debug, Clone, Copy)]
 enum Status {
@@ -86,18 +88,31 @@ fn check_ssh_dir_perms() -> Check {
             detail: format!("{} is not a directory", dir.display()),
         };
     }
-    let mode = metadata.permissions().mode() & 0o777;
-    if mode == 0o700 {
+    #[cfg(unix)]
+    {
+        let mode = metadata.permissions().mode() & 0o777;
+        if mode == 0o700 {
+            Check {
+                name: "~/.ssh permissions",
+                status: Status::Pass,
+                detail: "mode 0700".into(),
+            }
+        } else {
+            Check {
+                name: "~/.ssh permissions",
+                status: Status::Warn,
+                detail: format!("mode {mode:o} (OpenSSH expects 0700)"),
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        // Windows ACLs aren't checked — different model from Unix mode bits.
+        let _ = metadata;
         Check {
             name: "~/.ssh permissions",
             status: Status::Pass,
-            detail: "mode 0700".into(),
-        }
-    } else {
-        Check {
-            name: "~/.ssh permissions",
-            status: Status::Warn,
-            detail: format!("mode {mode:o} (OpenSSH expects 0700)"),
+            detail: "Windows: ACL not checked (no Unix mode equivalent)".into(),
         }
     }
 }
