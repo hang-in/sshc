@@ -68,7 +68,14 @@ impl App {
     pub fn new_with_state(hosts: Vec<Host>, state: AppState) -> Self {
         let filtered: Vec<usize> = (0..hosts.len()).collect();
         let probe_states = vec![ProbeState::Unknown; hosts.len()];
-        let last_connected = state.memory.last_connected_alias.clone();
+        // Prefer the v0.6 `recent` head; fall back to the legacy field on
+        // first load from a pre-v0.6 state.toml.
+        let last_connected = state
+            .memory
+            .recent
+            .first()
+            .map(|e| e.alias.clone())
+            .or_else(|| state.memory.last_connected_alias.clone());
         Self {
             hosts,
             filtered,

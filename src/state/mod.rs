@@ -2,6 +2,7 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -69,6 +70,33 @@ fn load_from(path: &Path) -> Result<State, SetupError> {
     }
     migrate_legacy_recent(&mut state, file_mtime_secs(path));
     Ok(state)
+}
+
+impl State {
+    /// Record a connection to `alias`: bump it to the front of
+    /// `memory.recent`, dedupe, truncate at `RECENT_MAX`, and keep the
+    /// legacy `last_connected_alias` field in sync for one release.
+    /// Timestamp uses the current Unix epoch in seconds (0 on clock-
+    /// resolution failure, which sorts last but never panics).
+    pub fn record_recent(&mut self, alias: &str) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        self.memory.recent.retain(|e| e.alias != alias);
+        self.memory.recent.insert(
+            0,
+            RecentEntry {
+                alias: alias.to_string(),
+                ts: now,
+            },
+        );
+        if self.memory.recent.len() > RECENT_MAX {
+            self.memory.recent.truncate(RECENT_MAX);
+        }
+        self.memory.last_connected_alias = Some(alias.to_string());
+    }
 }
 
 /// If `memory.recent` is empty but the pre-v0.6 `last_connected_alias`
@@ -211,6 +239,40 @@ mod tests {
         assert_eq!(loaded.memory.recent.len(), 1);
         assert_eq!(loaded.memory.recent[0].alias, "prod-db");
         assert!(loaded.setup.include_check_done);
+    }
+
+    #[test]
+    fn test_record_recent_inserts_at_front() {
+        let mut s = State::default();
+        s.record_recent("alpha");
+        s.record_recent("beta");
+        assert_eq!(s.memory.recent.len(), 2);
+        assert_eq!(s.memory.recent[0].alias, "beta");
+        assert_eq!(s.memory.recent[1].alias, "alpha");
+        assert_eq!(s.memory.last_connected_alias.as_deref(), Some("beta"));
+    }
+
+    #[test]
+    fn test_record_recent_dedupes() {
+        let mut s = State::default();
+        s.record_recent("alpha");
+        s.record_recent("beta");
+        s.record_recent("alpha");
+        // "alpha" moved to front; "beta" still present once.
+        assert_eq!(s.memory.recent.len(), 2);
+        assert_eq!(s.memory.recent[0].alias, "alpha");
+        assert_eq!(s.memory.recent[1].alias, "beta");
+    }
+
+    #[test]
+    fn test_record_recent_truncates_at_max() {
+        let mut s = State::default();
+        for i in 0..(RECENT_MAX + 5) {
+            s.record_recent(&format!("host-{i}"));
+        }
+        assert_eq!(s.memory.recent.len(), RECENT_MAX);
+        // Most-recent first: last pushed is at index 0.
+        assert_eq!(s.memory.recent[0].alias, format!("host-{}", RECENT_MAX + 4));
     }
 
     #[test]

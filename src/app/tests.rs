@@ -390,6 +390,37 @@ fn test_favorite_floats_to_top_of_filter() {
 }
 
 #[test]
+fn test_three_tier_sort_favorite_recent_fuzzy() {
+    // Hosts: a, b, c. Filter "x" matches none of the aliases, so the
+    // bare-query branch returns an empty filtered list — instead use a
+    // permissive query that matches all three.
+    let mut app = App::new(vec![
+        make_host("apple"),
+        make_host("banana"),
+        make_host("cherry"),
+    ]);
+    // Record recency in the order: cherry, then banana. So banana > cherry by ts.
+    app.state.record_recent("cherry");
+    app.state.record_recent("banana");
+    // Pin "apple" — favorites always win.
+    app.toggle_favorite("apple");
+    app.filter_query = "a".to_string(); // matches all three
+    app.apply_filter();
+    let order = app
+        .filtered
+        .iter()
+        .map(|&i| app.hosts[i].alias.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(order[0], "apple", "favorite first");
+    // The next two must be in recency order: banana (latest), then cherry.
+    let rest: Vec<&str> = order[1..].iter().map(|s| s.as_str()).collect();
+    assert!(
+        rest.starts_with(&["banana", "cherry"]),
+        "expected banana before cherry by recency, got {rest:?}"
+    );
+}
+
+#[test]
 fn test_f_key_in_manage_toggles_pin_and_queues_save() {
     let mut h = make_host("managed");
     h.source_file = crate::storage::sshc_conf_path().unwrap_or_default();

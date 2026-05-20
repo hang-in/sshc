@@ -38,7 +38,14 @@ impl InlineApp {
 
     pub fn new_with_state(hosts: Vec<Host>, state: &State) -> Self {
         let mut app = Self::new(hosts);
-        app.last_connected = state.memory.last_connected_alias.clone();
+        // Prefer the v0.6 `recent` head; fall back to the legacy field
+        // on first load from a pre-v0.6 state.toml.
+        app.last_connected = state
+            .memory
+            .recent
+            .first()
+            .map(|e| e.alias.clone())
+            .or_else(|| state.memory.last_connected_alias.clone());
         app
     }
 

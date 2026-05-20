@@ -76,7 +76,7 @@ pub fn inline(viewport_height: u16) -> Result<ExitCode, AppError> {
                     &mut app,
                     &alias,
                 )?;
-                app_state.memory.last_connected_alias = Some(alias);
+                app_state.record_recent(&alias);
                 let _ = state::save(&app_state);
                 return Ok(exit_code_from(result));
             }
@@ -90,7 +90,7 @@ pub fn inline(viewport_height: u16) -> Result<ExitCode, AppError> {
                     &mut app,
                     &alias,
                 )?;
-                app_state.memory.last_connected_alias = Some(alias);
+                app_state.record_recent(&alias);
                 let _ = state::save(&app_state);
                 return Ok(exit_code_from(result));
             }
@@ -113,7 +113,7 @@ pub fn direct(alias: &str) -> Result<ExitCode, AppError> {
         return Ok(ExitCode::FAILURE);
     }
     let result = crate::exec::ssh::ssh_run(alias, "ssh")?;
-    app_state.memory.last_connected_alias = Some(alias.to_string());
+    app_state.record_recent(alias);
     let _ = state::save(&app_state);
     Ok(exit_code_from(result))
 }
@@ -154,6 +154,7 @@ pub fn manage() -> Result<ExitCode, AppError> {
             }
             Some(AppAction::Connect(alias)) => {
                 runtime::handle_connect(&mut guard, &mut terminal, &mut app, &alias)?;
+                app.state.record_recent(&alias);
                 let _ = state::save(&app.state);
             }
             Some(AppAction::SaveState) => {
