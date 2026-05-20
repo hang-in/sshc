@@ -34,9 +34,15 @@ pub fn is_include_present(main_config: &Path, sshc_conf_path: &Path) -> Result<b
 
 /// Append a sshc-managed Include line to the end of `main_config`. No-op if
 /// already present. Creates a dated `.bak.sshc-YYYYMMDD` before mutating.
-pub fn inject_include(main_config: &Path, sshc_conf_path: &Path) -> Result<(), StorageError> {
+///
+/// Returns `Ok(true)` when a new Include line was added, `Ok(false)` when
+/// it was already present (no file mutation, no backup). Callers use the
+/// outcome to render the right status message — "Include added …" vs
+/// "Include already present …" — which matters when 'i' is pressed in
+/// manage mode where the user can't tell if writes were already enabled.
+pub fn inject_include(main_config: &Path, sshc_conf_path: &Path) -> Result<bool, StorageError> {
     if is_include_present(main_config, sshc_conf_path)? {
-        return Ok(());
+        return Ok(false);
     }
     let backup_path = backup_path_for(main_config);
     fs::copy(main_config, &backup_path).map_err(StorageError::BackupFailed)?;
@@ -48,7 +54,7 @@ pub fn inject_include(main_config: &Path, sshc_conf_path: &Path) -> Result<(), S
         .map_err(StorageError::WriteFailed)?;
     writeln!(file, "\n# Added by sshc; do not remove.").map_err(StorageError::WriteFailed)?;
     writeln!(file, "Include {}", include_value).map_err(StorageError::WriteFailed)?;
-    Ok(())
+    Ok(true)
 }
 
 fn expand_user(path: &str) -> PathBuf {

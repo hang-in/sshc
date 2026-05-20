@@ -63,11 +63,16 @@ pub fn handle_inject_include(app: &mut App) {
         return;
     };
     match crate::storage::inject_include(&main_cfg, &sshc_conf) {
-        Ok(()) => {
+        Ok(added) => {
             app.state.setup.include_check_done = true;
             app.state.setup.declined_include_injection = false;
             let _ = crate::state::save(&app.state);
-            app.status_message = Some(StatusMessage::new("Include added to ~/.ssh/config"));
+            let msg = if added {
+                "Include line added to ~/.ssh/config — writes enabled"
+            } else {
+                "Include line already present — writes already enabled"
+            };
+            app.status_message = Some(StatusMessage::new(msg));
         }
         Err(e) => {
             app.status_message = Some(StatusMessage::new(format!("include injection failed: {e}")));
