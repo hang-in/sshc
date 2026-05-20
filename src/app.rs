@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::config::model::Host;
 use crate::config::tags::normalize_tag;
-use crate::error::{AppError, StorageError};
+use crate::error::{AppError, SetupError};
 use crate::exec::ssh::SshResult;
 use crate::probe::{ProbeState, ProbeUpdate};
 use crate::state::State as AppState;
@@ -546,8 +546,10 @@ impl App {
     /// Apply an add-host form submission: append to in-memory hosts and
     /// persist via storage::with_locked_write.
     fn apply_add(&mut self, payload: &FormPayload) -> Result<(), AppError> {
+        // The caller (apply_form) already matched FormPayload::Host before
+        // routing here, so host_from_payload always returns Some.
         let host = host_from_payload(payload, &Self::sshc_conf_path_or_blank())
-            .ok_or(AppError::Storage(StorageError::LockHeldByOther))?;
+            .expect("apply_form routes Host payloads to apply_add");
         if self.hosts.iter().any(|h| h.alias == host.alias) {
             self.status_message = Some(StatusMessage::new(format!(
                 "alias '{}' already exists",
@@ -563,8 +565,9 @@ impl App {
     }
 
     fn apply_modify(&mut self, alias: &str, payload: &FormPayload) -> Result<(), AppError> {
+        // Caller already matched FormPayload::Host (see apply_add note).
         let new_host = host_from_payload(payload, &Self::sshc_conf_path_or_blank())
-            .ok_or(AppError::Storage(StorageError::LockHeldByOther))?;
+            .expect("apply_form routes Host payloads to apply_modify");
         if let Some(pos) = self.hosts.iter().position(|h| h.alias == alias) {
             self.hosts[pos] = new_host;
             self.persist_sshc_conf()?;
@@ -610,8 +613,11 @@ impl App {
     /// Re-render the in-memory hosts that live in sshc.conf and atomically
     /// rewrite the file.
     fn persist_sshc_conf(&self) -> Result<(), AppError> {
-        let path = crate::storage::sshc_conf_path()
-            .ok_or(AppError::Storage(StorageError::LockHeldByOther))?;
+        // sshc_conf_path() only returns None when the home directory cannot
+        // be resolved. Report that explicitly rather than disguising it as
+        // a lock-contention failure.
+        let path =
+            crate::storage::sshc_conf_path().ok_or(AppError::Setup(SetupError::HomeDirMissing))?;
         let owned_hosts: Vec<Host> = self
             .hosts
             .iter()
