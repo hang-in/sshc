@@ -29,9 +29,44 @@ fn parse_mode() -> ScreenMode {
     ScreenMode::Inline(viewport)
 }
 
+fn print_help() {
+    println!(
+        "sshc {} — terminal UI for managing SSH hosts\n\n\
+         USAGE:\n    \
+             sshc [OPTIONS]\n\n\
+         OPTIONS:\n    \
+             -m, --manage    Open the full management TUI (alternate screen).\n                    \
+                             Without this flag sshc opens an inline fzf-style picker.\n    \
+             -h, --help      Print this help and exit.\n    \
+             -V, --version   Print version and exit.\n\n\
+         Inline keys: type to filter, ↑/↓ or j/k navigate, Enter ssh,\n             \
+                      r reconnect, Esc clear/quit, Ctrl+C quit.\n\
+         Manage keys: see `?` inside the TUI.\n\n\
+         Files:\n    \
+             ~/.ssh/config.d/sshc.conf   hosts added via manage mode\n    \
+             ~/.config/sshc/state.toml   last-connected + setup state\n\n\
+         Source: https://github.com/hang-in/sshc",
+        env!("CARGO_PKG_VERSION")
+    );
+}
+
+fn print_version() {
+    println!("sshc {}", env!("CARGO_PKG_VERSION"));
+}
+
 fn main() -> ExitCode {
     env_logger::init();
     install_panic_hook();
+
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "-h" || a == "--help") {
+        print_help();
+        return ExitCode::SUCCESS;
+    }
+    if args.iter().any(|a| a == "-V" || a == "--version") {
+        print_version();
+        return ExitCode::SUCCESS;
+    }
 
     let result: Result<ExitCode, AppError> = match parse_mode() {
         ScreenMode::Inline(h) => run::inline(h),

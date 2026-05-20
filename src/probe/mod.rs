@@ -124,6 +124,7 @@ mod tests {
             line_start: 0,
             source_file: PathBuf::new(),
             tags: vec![],
+            extra: Vec::new(),
         }
     }
 

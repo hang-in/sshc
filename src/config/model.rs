@@ -17,6 +17,12 @@ pub struct Host {
     /// Tags parsed from a `# @tags: a, b` comment immediately above
     /// the Host block (no blank line between). Lowercase, deduped.
     pub tags: Vec<String>,
+    /// SSH config directives we don't model as typed fields. Each entry
+    /// is a single line in `Key Value` form (no leading indent). The
+    /// parser preserves them verbatim; the serializer emits them with
+    /// the standard 4-space indent after the typed fields. Use for
+    /// `ProxyJump`, `ForwardAgent`, `LocalForward`, etc.
+    pub extra: Vec<String>,
 }
 
 impl fmt::Display for Host {
@@ -87,6 +93,7 @@ mod tests {
             line_start: 1,
             source_file: PathBuf::from("/test/config"),
             tags: Vec::new(),
+            extra: Vec::new(),
         }
     }
 

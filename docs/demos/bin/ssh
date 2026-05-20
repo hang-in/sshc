@@ -1,0 +1,15 @@
+#!/bin/bash
+# Demo-only ssh wrapper. Replaces /usr/bin/ssh in vhs recordings so the
+# inline-mode round-trip can complete without touching real infrastructure.
+HOST="$1"
+printf '\033[36m→ ssh %s\033[0m\n' "$HOST"
+sleep 0.4
+printf 'Welcome to demo \033[1m%s\033[0m. Last login: %s\n' "$HOST" "$(date '+%a %b %d %H:%M:%S %Y')"
+sleep 0.6
+printf '$ uptime\n'
+sleep 0.3
+printf ' %s  up 7 days, 14:23, 1 user, load average: 0.12, 0.08, 0.03\n' "$(date '+%H:%M:%S')"
+sleep 0.5
+printf '$ logout\n'
+sleep 0.3
+exit 0

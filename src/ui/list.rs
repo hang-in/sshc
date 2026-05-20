@@ -257,6 +257,7 @@ mod tests {
             line_start: 1,
             source_file: PathBuf::from(path),
             tags: tags.into_iter().map(String::from).collect(),
+            extra: Vec::new(),
         }
     }
 

@@ -174,6 +174,7 @@ mod tests {
             line_start: 1,
             source_file: std::path::PathBuf::from("/test/config"),
             tags: Vec::new(),
+            extra: Vec::new(),
         }
     }
 

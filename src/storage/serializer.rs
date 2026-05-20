@@ -30,6 +30,11 @@ pub fn host_blocks_to_text(hosts: &[Host]) -> String {
         if let Some(ref id) = host.identity_file {
             out.push_str(&format!("    IdentityFile {}\n", id.display()));
         }
+        for line in &host.extra {
+            out.push_str("    ");
+            out.push_str(line.trim());
+            out.push('\n');
+        }
     }
     out
 }
@@ -49,6 +54,7 @@ mod tests {
             line_start: 0,
             source_file: PathBuf::new(),
             tags: tags.into_iter().map(String::from).collect(),
+            extra: Vec::new(),
         }
     }
 

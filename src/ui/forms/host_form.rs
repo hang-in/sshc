@@ -9,7 +9,7 @@ use ratatui::{
     Frame,
 };
 
-const FIELD_COUNT: usize = 6;
+const FIELD_COUNT: usize = 7;
 
 pub struct HostForm {
     fields: [String; FIELD_COUNT],
@@ -33,6 +33,7 @@ impl HostForm {
         port: &str,
         identity_file: &str,
         tags_csv: &str,
+        extra: &str,
     ) -> Self {
         Self {
             fields: [
@@ -42,6 +43,7 @@ impl HostForm {
                 port.to_string(),
                 identity_file.to_string(),
                 tags_csv.to_string(),
+                extra.to_string(),
             ],
             active_index: 0,
             error: None,
@@ -89,6 +91,8 @@ impl HostForm {
             return Err("Maximum 16 distinct tags allowed".to_string());
         }
 
+        let extra = self.fields[6].trim();
+
         Ok(FormPayload::Host {
             alias: alias.to_string(),
             hostname: hostname.to_string(),
@@ -96,6 +100,7 @@ impl HostForm {
             port: port_str.to_string(),
             identity_file: id_file.to_string(),
             tags_csv: tags_csv.to_string(),
+            extra: extra.to_string(),
         })
     }
 }
@@ -112,7 +117,15 @@ impl FormState for HostForm {
         let inner = block.inner(area);
         f.render_widget(block, area);
 
-        let labels = ["Alias", "HostName", "User", "Port", "IdentityFile", "Tags"];
+        let labels = [
+            "Alias",
+            "HostName",
+            "User",
+            "Port",
+            "IdentityFile",
+            "Tags",
+            "Options (a; b)",
+        ];
 
         let outer = Layout::vertical([
             Constraint::Length((FIELD_COUNT as u16) * 2),
@@ -226,7 +239,7 @@ mod tests {
     #[test]
     fn test_tab_wraparound() {
         let mut form = HostForm::new();
-        for expected in &[1usize, 2, 3, 4, 5, 0] {
+        for expected in &[1usize, 2, 3, 4, 5, 6, 0] {
             form.handle_key(ke(KeyCode::Tab));
             assert_eq!(form.active_index, *expected);
         }
@@ -235,7 +248,7 @@ mod tests {
     #[test]
     fn test_backtab_wraparound() {
         let mut form = HostForm::new();
-        for expected in &[5usize, 4, 3, 2, 1, 0] {
+        for expected in &[6usize, 5, 4, 3, 2, 1, 0] {
             form.handle_key(ke(KeyCode::BackTab));
             assert_eq!(form.active_index, *expected);
         }
@@ -275,7 +288,7 @@ mod tests {
         let mut form = HostForm::new();
         form.fields[0] = "dev1".to_string();
         form.fields[1] = "10.0.0.1".to_string();
-        form.active_index = 5;
+        form.active_index = 6;
         match form.handle_key(ke(KeyCode::Enter)) {
             FormOutcome::Submit(FormPayload::Host {
                 alias, hostname, ..
@@ -291,7 +304,7 @@ mod tests {
     fn test_validation_missing_alias() {
         let mut form = HostForm::new();
         form.fields[1] = "host".to_string();
-        form.active_index = 5;
+        form.active_index = 6;
         assert!(matches!(
             form.handle_key(ke(KeyCode::Enter)),
             FormOutcome::Stay
@@ -305,7 +318,7 @@ mod tests {
         form.fields[0] = "dev".to_string();
         form.fields[1] = "h".to_string();
         form.fields[3] = "70000".to_string();
-        form.active_index = 5;
+        form.active_index = 6;
         assert!(matches!(
             form.handle_key(ke(KeyCode::Enter)),
             FormOutcome::Stay
@@ -319,7 +332,7 @@ mod tests {
         form.fields[0] = "dev".to_string();
         form.fields[1] = "h".to_string();
         form.fields[4] = "/etc/key;rm".to_string();
-        form.active_index = 5;
+        form.active_index = 6;
         assert!(matches!(
             form.handle_key(ke(KeyCode::Enter)),
             FormOutcome::Stay
@@ -329,12 +342,13 @@ mod tests {
 
     #[test]
     fn test_from_host_populates_fields() {
-        let form = HostForm::from_host("a", "h", "u", "22", "/k", "x,y");
+        let form = HostForm::from_host("a", "h", "u", "22", "/k", "x,y", "ProxyJump bastion");
         assert_eq!(form.fields[0], "a");
         assert_eq!(form.fields[1], "h");
         assert_eq!(form.fields[2], "u");
         assert_eq!(form.fields[3], "22");
         assert_eq!(form.fields[4], "/k");
         assert_eq!(form.fields[5], "x,y");
+        assert_eq!(form.fields[6], "ProxyJump bastion");
     }
 }

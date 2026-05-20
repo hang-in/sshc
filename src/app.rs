@@ -269,6 +269,7 @@ impl App {
             .map(|p| p.display().to_string())
             .unwrap_or_default();
         let tags_csv = host.tags.join(", ");
+        let extra_joined = host.extra.join("; ");
         let form = crate::ui::forms::HostForm::from_host(
             &host.alias,
             host.hostname.as_deref().unwrap_or(""),
@@ -276,6 +277,7 @@ impl App {
             &port_str,
             &identity,
             &tags_csv,
+            &extra_joined,
         );
         self.active_form_context = Some(FormContext::EditHost(host.alias.clone()));
         self.mode = AppMode::Modal(ModalKind::Form(Box::new(form)));
@@ -654,6 +656,7 @@ fn host_from_payload(payload: &FormPayload, source: &std::path::Path) -> Option<
         port,
         identity_file,
         tags_csv,
+        extra,
     } = payload
     {
         let port_parsed: Option<u16> = if port.is_empty() {
@@ -681,6 +684,12 @@ fn host_from_payload(payload: &FormPayload, source: &std::path::Path) -> Option<
                     }
                     acc
                 });
+        let extra_lines: Vec<String> = extra
+            .split(';')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect();
         Some(Host {
             alias: alias.clone(),
             hostname: Some(hostname.clone()),
@@ -690,6 +699,7 @@ fn host_from_payload(payload: &FormPayload, source: &std::path::Path) -> Option<
             line_start: 1,
             source_file: source.to_path_buf(),
             tags,
+            extra: extra_lines,
         })
     } else {
         None
@@ -711,6 +721,7 @@ mod tests {
             line_start: 1,
             source_file: PathBuf::from("/test/config"),
             tags: Vec::new(),
+            extra: Vec::new(),
         }
     }
 

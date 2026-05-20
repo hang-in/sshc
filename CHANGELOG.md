@@ -8,6 +8,81 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.4.2] — 2026-05-20
+
+### Added
+
+- **`--help` / `-h`** and **`--version` / `-V`** flags. Help text covers
+  the inline / manage split, keys, and on-disk files. Version comes from
+  `CARGO_PKG_VERSION`, so the Homebrew formula's smoke test can call
+  `sshc --version` instead of just checking the binary exists.
+- **Modal overlay rendering**. v0.4.0/0.4.1 had a bug where
+  `ui/mod.rs::render` only drew the host table; an active `ModalKind`
+  (Confirmation/Info/Form) was never painted. First-run users saw the
+  host list and thought "no key works except Esc" — but Esc was
+  actually triggering the modal's on-no path (decline_include). Modal
+  is now overlaid via `Clear` + chrome + body.
+- **Manage `i` key**: force-retry the Include injection. Useful when
+  the user previously declined first-run setup, the Include line was
+  removed by hand, or `state.toml` got into a stale state. Flips
+  `declined_include_injection = false` and emits
+  `AppAction::InjectInclude`.
+- **`Host.extra: Vec<String>`** — freeform SSH directives (ProxyJump,
+  ForwardAgent, LocalForward, …) preserved across read/write
+  round-trips. Parser pushes unknown lines inside a Host block into
+  `extra`; serializer emits them with the standard 4-space indent
+  after the typed fields.
+- **HostForm "Options (a; b)" field** (7th field). Semicolon-
+  separated entry: each `KeyValue` becomes one extra line. Tab
+  wraparound updated to 7 fields.
+
+### Changed
+
+- **Renamed `sshs` → `sshc`** across the codebase (folded in from
+  v0.4.1 — name collision with an unrelated CLI). Binary, package,
+  on-disk paths (`~/.ssh/config.d/sshc.conf`, `~/.config/sshc/...`),
+  UI strings, docs, file backup suffix. The state.toml schema is
+  unchanged; only its parent directory moved.
+- **Tags column moved off Alias into a dedicated right-side column**
+  with `show_tags` visibility (hides first as panels narrow). Alias
+  cells now always start at column 0, so vertical scanning works.
+- **Inline mode layout**: no border, left-aligned, width sized to the
+  data (no longer wastes the full terminal width on a sparse table).
+  Status bar marker `/` → `▸` since the user never typed `/` to start
+  filtering — fzf semantics.
+- **Inline viewport height** is now `(host_count + 3).clamp(5,
+  viewport_height)` instead of a fixed 15 rows. Avoids reserving
+  blank rows and pushing the shell prompt far up the scrollback.
+- **Read-only status messages are actionable**: all `a/m/d/t`
+  read-only branches now suggest `press 'i' to add Include line`.
+- **Manage Enter key**: opens the modify form for sshc.conf-managed
+  hosts; falls through to `$EDITOR` for external hosts. `s` is now
+  the ssh-connect shortcut; `m` is unbound (already in v0.4.0/0.4.1
+  but reiterated here for the `i` help-text update).
+- **CI/CD**: replaced the handcrafted `release.yml` +
+  `bump-homebrew.yml` pair with **cargo-dist v0.31.0**. Single
+  `dist-workspace.toml` drives cross-compile + tarballs + GitHub
+  release + Homebrew tap formula push. The `release.published`
+  event from `GITHUB_TOKEN`-created releases didn't trigger the
+  downstream `bump-homebrew.yml` (known constraint); cargo-dist
+  sidesteps that with a single pipeline.
+- **Misleading error mappings fixed** (PR review feedback,
+  gemini-code-assist): `apply_add` / `apply_modify` now
+  `.expect()` the unreachable `host_from_payload` `None` branch;
+  `persist_sshc_conf` reports
+  `AppError::Setup(SetupError::HomeDirMissing)` instead of
+  disguising it as lock contention.
+
+### Internal
+
+- `Cargo.toml` gains `repository`, `homepage`, `readme`,
+  `[profile.dist]`.
+- `dist-workspace.toml` (new) — cargo-dist config.
+- `examples/render_preview.rs` + tests updated for the new
+  `Host.extra` field and the tag column move.
+- `docs/demos/` (new) — fixture ssh config + fake ssh wrapper +
+  vhs tapes for layout previews.
+
 ## [0.4.1] — 2026-05-20
 
 ### Changed

@@ -1,0 +1,32 @@
+# Demo ~/.ssh/config — all entries are fake addresses (TEST-NET ranges,
+# example.com domains). Safe to copy/paste; nothing here resolves to a
+# real host.
+
+Include ~/.ssh/config.d/sshc.conf
+
+# @tags: cloud, aws, jumphost
+Host aws-bastion
+    HostName bastion.aws.example.com
+    User ec2-user
+    Port 22
+
+# @tags: cloud, gcp, jumphost
+Host gcp-jump
+    HostName jump.gcp.example.com
+    User admin
+    Port 9207
+
+# @tags: prod, internal
+Host prod-internal-1
+    HostName 203.0.113.50
+    User deploy
+    ProxyJump aws-bastion
+
+Host legacy-mainframe
+    HostName legacy.example.com
+    User admin
+    Port 22
+
+Host *
+    ServerAliveInterval 60
+    ServerAliveCountMax 3

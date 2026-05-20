@@ -55,6 +55,7 @@ struct BlockState {
     identity_file: Option<PathBuf>,
     line_start: usize,
     tags: Vec<String>,
+    extra: Vec<String>,
 }
 
 impl BlockState {
@@ -67,6 +68,7 @@ impl BlockState {
             identity_file: None,
             line_start: 0,
             tags: Vec::new(),
+            extra: Vec::new(),
         }
     }
 
@@ -78,6 +80,7 @@ impl BlockState {
         self.identity_file = None;
         self.line_start = line_start;
         self.tags = Vec::new();
+        self.extra = Vec::new();
     }
 
     fn is_active(&self) -> bool {
@@ -98,6 +101,7 @@ fn flush_block(hosts: &mut Vec<Host>, block: &BlockState, source_file: &Path) {
                 line_start: block.line_start,
                 source_file: source_file.to_path_buf(),
                 tags: block.tags.clone(),
+                extra: block.extra.clone(),
             });
         }
     }
@@ -196,7 +200,12 @@ fn parse_config_content(
                 let included = resolve_include(&value, base_dir, visited, depth);
                 hosts.extend(included);
             }
-            _ if in_host_block => {}
+            _ if in_host_block => {
+                // Unknown SSH directive inside a Host block — preserve it
+                // verbatim so a round-trip rewrite of sshc.conf doesn't
+                // drop options like ProxyJump / ForwardAgent / LocalForward.
+                block.extra.push(format!("{} {}", keyword, value));
+            }
             _ => {}
         }
     }

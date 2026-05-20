@@ -16,6 +16,7 @@ fn host(alias: &str, hostname: &str) -> Host {
         line_start: 1,
         source_file: PathBuf::from("/tmp/fixture-config"),
         tags: Vec::new(),
+        extra: Vec::new(),
     }
 }
 

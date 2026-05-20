@@ -15,6 +15,7 @@ fn make_host(hostname: &str, port: u16) -> Host {
         line_start: 1,
         source_file: PathBuf::from("/dev/null"),
         tags: Vec::new(),
+        extra: Vec::new(),
     }
 }
 

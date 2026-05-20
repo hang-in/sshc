@@ -48,6 +48,10 @@ pub enum FormPayload {
         port: String,
         identity_file: String,
         tags_csv: String,
+        /// Freeform SSH config directives (one per line, e.g.
+        /// `ProxyJump bastion`). Multi-line edit not implemented in v0.4;
+        /// the form accepts semicolon-separated entries and splits on `;`.
+        extra: String,
     },
     Tags {
         tags_csv: String,
