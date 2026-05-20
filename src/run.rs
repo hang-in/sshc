@@ -65,35 +65,15 @@ pub fn inline(viewport_height: u16) -> Result<ExitCode, AppError> {
         },
     )?;
 
-    loop {
-        inline_runtime::run_event_loop_inline(&mut terminal, &mut app)?;
-        match app.take_action() {
-            None | Some(InlineAction::Quit) => return Ok(ExitCode::SUCCESS),
-            Some(InlineAction::Connect(alias)) => {
-                let result = inline_runtime::handle_connect_inline(
-                    &mut guard,
-                    &mut terminal,
-                    &mut app,
-                    &alias,
-                )?;
-                app_state.record_recent(&alias);
-                let _ = state::save(&app_state);
-                return Ok(exit_code_from(result));
-            }
-            Some(InlineAction::Reconnect) => {
-                let Some(alias) = app.last_connected.clone() else {
-                    continue;
-                };
-                let result = inline_runtime::handle_connect_inline(
-                    &mut guard,
-                    &mut terminal,
-                    &mut app,
-                    &alias,
-                )?;
-                app_state.record_recent(&alias);
-                let _ = state::save(&app_state);
-                return Ok(exit_code_from(result));
-            }
+    inline_runtime::run_event_loop_inline(&mut terminal, &mut app)?;
+    match app.take_action() {
+        None | Some(InlineAction::Quit) => Ok(ExitCode::SUCCESS),
+        Some(InlineAction::Connect(alias)) => {
+            let result =
+                inline_runtime::handle_connect_inline(&mut guard, &mut terminal, &mut app, &alias)?;
+            app_state.record_recent(&alias);
+            let _ = state::save(&app_state);
+            Ok(exit_code_from(result))
         }
     }
 }

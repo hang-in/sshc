@@ -6,7 +6,6 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 pub enum InlineAction {
     Quit,
     Connect(String),
-    Reconnect,
 }
 
 /// Lean read-only host browser for v0.4 inline mode. No modal subsystem,
@@ -16,6 +15,12 @@ pub struct InlineApp {
     pub filtered: Vec<usize>,
     pub selected: usize,
     pub query: String,
+    /// v0.6: inline is now modal like manage. `j/k/↑/↓/r/Enter/q/Esc`
+    /// are nav/action keys until the user explicitly enters search mode
+    /// with `/`. Inside search mode, printable chars filter; Esc exits
+    /// search mode (keeping the picker open); Enter still ssh-launches
+    /// the highlighted host.
+    pub filter_mode: bool,
     pub last_connected: Option<String>,
     /// Snapshot of `state.memory.favorites` at construction. Inline mode
     /// is read-only, so this is never mutated after `new_with_state`.
@@ -37,6 +42,7 @@ impl InlineApp {
             filtered,
             selected: 0,
             query: String::new(),
+            filter_mode: false,
             last_connected: None,
             favorites: Vec::new(),
             recent: Vec::new(),
@@ -69,6 +75,7 @@ impl InlineApp {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
+        // Ctrl+C always quits, regardless of mode.
         if key.modifiers.contains(KeyModifiers::CONTROL) {
             if let KeyCode::Char('c') = key.code {
                 self.pending_action = Some(InlineAction::Quit);
@@ -76,16 +83,46 @@ impl InlineApp {
             return;
         }
 
+        if self.filter_mode {
+            self.handle_key_filter(key);
+        } else {
+            self.handle_key_nav(key);
+        }
+    }
+
+    fn handle_key_nav(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => self.previous(),
+            KeyCode::Down | KeyCode::Char('j') => self.next(),
+            KeyCode::Char('/') => {
+                self.filter_mode = true;
+                // Re-apply so the empty-query "match all" branch reseats
+                // the filtered list to every host before the user types.
+                self.apply_filter();
+            }
+            // v0.6: `r` reconnect dropped from inline. Recent-history sort
+            // puts last_connected at row 0 anyway, so Enter is the same
+            // keystroke count.
+            KeyCode::Enter => {
+                if let Some(host) = self.selected_host() {
+                    self.pending_action = Some(InlineAction::Connect(host.alias.clone()));
+                }
+            }
+            KeyCode::Char('q') | KeyCode::Esc => {
+                self.pending_action = Some(InlineAction::Quit);
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_key_filter(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Up => self.previous(),
             KeyCode::Down => self.next(),
             KeyCode::Esc => {
-                if !self.query.is_empty() {
-                    self.query.clear();
-                    self.apply_filter();
-                } else {
-                    self.pending_action = Some(InlineAction::Quit);
-                }
+                self.query.clear();
+                self.filter_mode = false;
+                self.apply_filter();
             }
             KeyCode::Enter => {
                 if let Some(host) = self.selected_host() {
@@ -97,23 +134,6 @@ impl InlineApp {
                 self.apply_filter();
             }
             KeyCode::Char(c) => {
-                if self.query.is_empty() {
-                    match c {
-                        'j' => {
-                            self.next();
-                            return;
-                        }
-                        'k' => {
-                            self.previous();
-                            return;
-                        }
-                        'r' if self.last_connected.is_some() => {
-                            self.pending_action = Some(InlineAction::Reconnect);
-                            return;
-                        }
-                        _ => {}
-                    }
-                }
                 self.query.push(c);
                 self.apply_filter();
             }
@@ -240,6 +260,7 @@ mod tests {
         assert_eq!(app.query, "");
         assert_eq!(app.selected, 0);
         assert_eq!(app.filtered.len(), hosts.len());
+        assert!(!app.filter_mode);
         assert!(!app.has_pending_action());
         assert!(app.last_connected.is_none());
     }
@@ -259,48 +280,73 @@ mod tests {
     }
 
     #[test]
-    fn test_immediate_filter_appends_to_query() {
-        let mut app = InlineApp::new(vec![make_host("apple")]);
-        app.handle_key(ke(KeyCode::Char('a')));
-        assert_eq!(app.query, "a");
-        assert!(!app.filtered.is_empty());
+    fn test_jk_always_navigate_in_nav_mode() {
+        let mut app = InlineApp::new(vec![make_host("a"), make_host("b"), make_host("c")]);
+        app.handle_key(ke(KeyCode::Char('j')));
+        assert_eq!(app.selected, 1);
+        app.handle_key(ke(KeyCode::Char('k')));
+        assert_eq!(app.selected, 0);
+        assert_eq!(app.query, "", "j/k must not append in nav mode");
     }
 
     #[test]
-    fn test_backspace_pops_query() {
-        let mut app = InlineApp::new(vec![make_host("apple")]);
+    fn test_slash_enters_filter_mode_and_typing_appends() {
+        let mut app = InlineApp::new(vec![make_host("apple"), make_host("banana")]);
+        app.handle_key(ke(KeyCode::Char('/')));
+        assert!(app.filter_mode);
         app.handle_key(ke(KeyCode::Char('a')));
-        app.handle_key(ke(KeyCode::Char('b')));
-        app.handle_key(ke(KeyCode::Backspace));
         assert_eq!(app.query, "a");
+        // Pre-filter 'j' would have navigated; once filter mode is on
+        // every printable char appends.
+        app.handle_key(ke(KeyCode::Char('j')));
+        assert_eq!(app.query, "aj");
     }
 
     #[test]
-    fn test_esc_clears_query_when_nonempty() {
+    fn test_esc_in_filter_mode_exits_to_nav_and_clears_query() {
         let mut app = InlineApp::new(vec![make_host("apple")]);
+        app.handle_key(ke(KeyCode::Char('/')));
         app.handle_key(ke(KeyCode::Char('a')));
         app.handle_key(ke(KeyCode::Esc));
+        assert!(!app.filter_mode);
         assert_eq!(app.query, "");
         assert!(!app.has_pending_action());
     }
 
     #[test]
-    fn test_esc_quits_when_empty() {
+    fn test_esc_in_nav_mode_quits() {
         let mut app = InlineApp::new(vec![]);
         app.handle_key(ke(KeyCode::Esc));
         assert_eq!(app.take_action(), Some(InlineAction::Quit));
     }
 
     #[test]
-    fn test_ctrl_c_always_quits() {
+    fn test_q_in_nav_mode_quits() {
+        let mut app = InlineApp::new(vec![make_host("a")]);
+        app.handle_key(ke(KeyCode::Char('q')));
+        assert_eq!(app.take_action(), Some(InlineAction::Quit));
+    }
+
+    #[test]
+    fn test_q_in_filter_mode_appends() {
+        let mut app = InlineApp::new(vec![make_host("apple")]);
+        app.handle_key(ke(KeyCode::Char('/')));
+        app.handle_key(ke(KeyCode::Char('q')));
+        assert_eq!(app.query, "q");
+        assert!(!app.has_pending_action());
+    }
+
+    #[test]
+    fn test_ctrl_c_quits_in_either_mode() {
         let mut app = InlineApp::new(vec![]);
+        app.handle_key(ke(KeyCode::Char('/')));
         app.query = "something".to_string();
         app.handle_key(ke_ctrl(KeyCode::Char('c')));
         assert_eq!(app.take_action(), Some(InlineAction::Quit));
     }
 
     #[test]
-    fn test_enter_emits_connect_with_alias() {
+    fn test_enter_emits_connect_with_alias_in_nav_mode() {
         let mut app = InlineApp::new(vec![make_host("host1"), make_host("host2")]);
         app.handle_key(ke(KeyCode::Enter));
         assert_eq!(
@@ -310,59 +356,47 @@ mod tests {
     }
 
     #[test]
-    fn test_enter_noop_on_empty_filter() {
+    fn test_enter_in_filter_mode_also_connects() {
+        let mut app = InlineApp::new(vec![make_host("apple")]);
+        app.handle_key(ke(KeyCode::Char('/')));
+        app.handle_key(ke(KeyCode::Char('a')));
+        app.handle_key(ke(KeyCode::Enter));
+        assert_eq!(
+            app.take_action(),
+            Some(InlineAction::Connect("apple".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_enter_noop_when_filter_matches_nothing() {
         let mut app = InlineApp::new(vec![make_host("a")]);
-        app.query = "zzzzz".to_string();
-        app.apply_filter();
+        app.handle_key(ke(KeyCode::Char('/')));
+        app.handle_key(ke(KeyCode::Char('z')));
+        app.handle_key(ke(KeyCode::Char('z')));
         app.handle_key(ke(KeyCode::Enter));
         assert!(!app.has_pending_action());
     }
 
     #[test]
-    fn test_navigation_wraps() {
+    fn test_arrow_keys_navigate_in_either_mode() {
         let mut app = InlineApp::new(vec![make_host("1"), make_host("2"), make_host("3")]);
+        // Nav mode arrows.
         app.handle_key(ke(KeyCode::Down));
+        assert_eq!(app.selected, 1);
+        // Filter mode arrows.
+        app.handle_key(ke(KeyCode::Char('/')));
         app.handle_key(ke(KeyCode::Down));
-        app.handle_key(ke(KeyCode::Down));
-        assert_eq!(app.selected, 0);
-        app.handle_key(ke(KeyCode::Up));
         assert_eq!(app.selected, 2);
     }
 
     #[test]
-    fn test_jk_navigate_only_when_query_empty() {
-        let mut app = InlineApp::new(vec![make_host("1"), make_host("2")]);
-        app.handle_key(ke(KeyCode::Char('j')));
-        assert_eq!(app.selected, 1);
-
-        app.query = "a".to_string();
-        app.apply_filter();
-        app.handle_key(ke(KeyCode::Char('j')));
-        assert_eq!(app.query, "aj");
-    }
-
-    #[test]
-    fn test_r_reconnect_only_when_query_empty_and_last_connected_set() {
-        // Case 1: last_connected None, query empty -> 'r' appends to query
-        // (per spec: any other Char appends when reconnect precondition fails).
-        let mut app = InlineApp::new(vec![]);
-        app.handle_key(ke(KeyCode::Char('r')));
-        assert!(!app.has_pending_action());
-        assert_eq!(app.query, "r");
-
-        // Case 2: last_connected Some, query empty -> Reconnect.
-        let mut app = InlineApp::new(vec![]);
-        app.last_connected = Some("foo".to_string());
-        app.handle_key(ke(KeyCode::Char('r')));
-        assert_eq!(app.take_action(), Some(InlineAction::Reconnect));
-
-        // Case 3: last_connected Some, query non-empty -> 'r' appends.
-        let mut app = InlineApp::new(vec![]);
-        app.last_connected = Some("foo".to_string());
-        app.query = "x".to_string();
-        app.handle_key(ke(KeyCode::Char('r')));
-        assert_eq!(app.query, "xr");
-        assert!(!app.has_pending_action());
+    fn test_backspace_pops_in_filter_mode() {
+        let mut app = InlineApp::new(vec![make_host("apple")]);
+        app.handle_key(ke(KeyCode::Char('/')));
+        app.handle_key(ke(KeyCode::Char('a')));
+        app.handle_key(ke(KeyCode::Char('b')));
+        app.handle_key(ke(KeyCode::Backspace));
+        assert_eq!(app.query, "a");
     }
 
     #[test]

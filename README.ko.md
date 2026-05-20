@@ -42,7 +42,7 @@ sshc
 
 | 명령 | 모드 | 하는 일 |
 |---|---|---|
-| `sshc` | 인라인 | fzf 스타일 picker → ssh → 셸 복귀. Alt 화면 미사용. |
+| `sshc` | 인라인 | 키 기반 picker → ssh → 셸 복귀. Alt 화면 미사용. |
 | `sshc <alias>` | 다이렉트 | picker 생략, `<alias>`를 설정에서 찾아 즉시 `ssh`. 알 수 없는 alias → exit 1. |
 | `sshc -m` | 관리 | 풀 TUI: 추가/수정/삭제, 태그, probe 글리프, `$EDITOR` 점프. |
 | `sshc --doctor` | 진단 | 읽기 전용 환경 점검 (`~/.ssh`, sshc.conf, Include 라인, `ssh` 바이너리, `SSH_AUTH_SOCK`). `FAIL`일 때만 non-zero 종료. |
@@ -54,16 +54,20 @@ sshc
 
 ### 인라인
 
+인라인은 modal입니다: 기본은 nav 모드, `/`로 검색 진입, Esc로 검색
+해제. pin한 호스트 (manage의 `f`)와 최근 접속한 호스트가 자동으로
+상단에 오므로 대부분의 경우 "열기 → Enter"면 끝.
+
 | 키 | 동작 |
 |---|---|
-| (모든 글자) | 즉시 필터 (fzf 스타일) |
-| Backspace | 필터에서 한 글자 삭제 |
-| ↑ / ↓ | 이동 |
-| j / k | 필터가 비었을 때만 이동 |
-| r | 필터가 비었을 때만 마지막 호스트 재접속 |
-| Enter | ssh → 종료 |
-| Esc | 필터가 있으면 지움, 없으면 종료 |
-| Ctrl+C | 종료 |
+| ↑ / ↓, j / k | 이동 |
+| `/` | 검색 모드 진입 |
+| Enter | 선택된 호스트로 ssh → 종료 |
+| q, Esc | 종료 (nav 모드) |
+| Ctrl+C | 종료 (모든 모드) |
+| (검색 중) 모든 글자 | 필터에 추가 |
+| (검색 중) Backspace | 필터에서 한 글자 삭제 |
+| (검색 중) Esc | 검색 모드만 종료 (picker는 유지) |
 
 ### 관리
 
@@ -129,9 +133,9 @@ sshc는 사용자가 손으로 작성한 `~/.ssh/config`를 한 줄 `Include`
 
 ## 다른 도구와의 비교
 
-`fzf` 스니펫보다 친절하고, `storm` 같은 직접 편집 도구보다 안전하며,
-본격 SSH GUI보다 가벼운 Rust TUI — 기존 `~/.ssh/config`를 존중하는 게
-핵심입니다.
+직접 짠 `fzf` 스니펫보다 친절하고, `storm` 같은 직접 편집 도구보다
+안전하며, 본격 SSH GUI보다 가벼운 작은 Rust TUI — 기존
+`~/.ssh/config`를 존중하는 게 핵심입니다.
 
 - **그냥 `ssh <alias>`**: 변함없는 source of truth. sshc는 기존 설정을
   읽기만 합니다 — 현재 사용 방식이 바뀌지 않습니다.

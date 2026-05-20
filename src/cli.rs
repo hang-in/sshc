@@ -50,8 +50,9 @@ fn print_help() {
              -V, --version   Print version and exit.\n    \
              --doctor        Run an environment report (~/.ssh, sshc.conf,\n                    \
                              Include line, ssh binary, SSH_AUTH_SOCK) and exit.\n\n\
-         Inline keys: type to filter, ↑/↓ or j/k navigate, Enter ssh,\n             \
-                      r reconnect, Esc clear/quit, Ctrl+C quit.\n\
+         Inline keys: ↑/↓ or j/k navigate, / search, Enter ssh,\n             \
+                      q or Esc quit, Ctrl+C quit.\n             \
+                      In search: type/Backspace filters, Esc exits search.\n\
          Manage keys: see `?` inside the TUI.\n\n\
          Files:\n    \
              ~/.ssh/config.d/sshc.conf   hosts added via manage mode\n    \

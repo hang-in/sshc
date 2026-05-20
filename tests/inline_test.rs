@@ -44,6 +44,8 @@ fn test_filter_then_enter_connects_to_top_match() {
     ];
     let mut app = InlineApp::new(hosts);
 
+    // v0.6 modal inline: explicit `/` to enter filter mode, then type.
+    app.handle_key(ke(KeyCode::Char('/')));
     send_chars(&mut app, "web");
     assert_eq!(app.host_count(), 2);
 
@@ -81,7 +83,10 @@ fn test_navigate_down_then_enter_picks_third_host() {
 }
 
 #[test]
-fn test_state_seeded_reconnect() {
+fn test_state_seeded_last_connected() {
+    // v0.6: inline dropped the explicit `r` reconnect key. last_connected
+    // is still tracked (used by the cyan ★ glyph) and the recency sort
+    // floats it to the top so a single Enter connects to it.
     let hosts = vec![host("host-a", "1.1.1.1"), host("host-b", "1.1.1.2")];
     let state = State {
         version: CURRENT_VERSION,
@@ -92,11 +97,8 @@ fn test_state_seeded_reconnect() {
         },
     };
 
-    let mut app = InlineApp::new_with_state(hosts, &state);
+    let app = InlineApp::new_with_state(hosts, &state);
     assert_eq!(app.last_connected, Some("host-b".to_string()));
-
-    app.handle_key(ke(KeyCode::Char('r')));
-    assert_eq!(app.take_action(), Some(InlineAction::Reconnect));
 }
 
 #[test]
@@ -104,13 +106,18 @@ fn test_filter_then_clear_then_quit() {
     let hosts = vec![host("x", "1.1.1.1"), host("y", "1.1.1.2")];
     let mut app = InlineApp::new(hosts);
 
+    app.handle_key(ke(KeyCode::Char('/')));
     send_chars(&mut app, "x");
     assert_eq!(app.query, "x");
+    assert!(app.filter_mode);
 
+    // First Esc: exit filter mode, clear query, stay open.
     app.handle_key(ke(KeyCode::Esc));
     assert!(app.query.is_empty());
+    assert!(!app.filter_mode);
     assert!(!app.has_pending_action());
 
+    // Second Esc (nav mode): quit.
     app.handle_key(ke(KeyCode::Esc));
     assert_eq!(app.take_action(), Some(InlineAction::Quit));
 }
@@ -120,6 +127,7 @@ fn test_ctrl_c_quits_mid_typing() {
     let hosts = vec![host("x", "1.1.1.1")];
     let mut app = InlineApp::new(hosts);
 
+    app.handle_key(ke(KeyCode::Char('/')));
     send_chars(&mut app, "a");
     app.handle_key(ke_ctrl(KeyCode::Char('c')));
     assert_eq!(app.take_action(), Some(InlineAction::Quit));

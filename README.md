@@ -43,7 +43,7 @@ TUI and `ssh`s straight in — handy for shell aliases and scripts.
 
 | Command | Mode | What it does |
 |---|---|---|
-| `sshc` | Inline | fzf-style host picker → ssh → back to shell. No alternate-screen takeover. |
+| `sshc` | Inline | Key-driven host picker → ssh → back to shell. No alternate-screen takeover. |
 | `sshc <alias>` | Direct | Skip the picker, look up `<alias>` in your config, `ssh` immediately. Unknown alias → exit 1. |
 | `sshc -m` | Manage | Full TUI: add/edit/delete hosts, tags, probe glyphs, `$EDITOR` jump. |
 | `sshc --doctor` | Doctor | Read-only environment report (`~/.ssh`, sshc.conf, Include line, `ssh` binary, `SSH_AUTH_SOCK`). Exits non-zero only on `FAIL`. |
@@ -56,16 +56,21 @@ for editing.
 
 ### Inline
 
+Inline is modal: navigation by default, `/` to start a search, Esc to
+leave the search. Pinned hosts (via manage mode `f`) and recently-
+connected hosts float to the top of the list, so the common case is
+"open `sshc`, Enter".
+
 | Key | Action |
 |---|---|
-| (any char) | filter (immediate, fzf-style) |
-| Backspace | delete one filter char |
-| ↑ / ↓ | navigate |
-| j / k | navigate (only when filter is empty) |
-| r | reconnect to last host (only when filter is empty) |
-| Enter | ssh → exit |
-| Esc | clear filter if non-empty; quit if empty |
-| Ctrl+C | quit |
+| ↑ / ↓, j / k | navigate |
+| `/` | enter search mode |
+| Enter | ssh to highlighted host → exit |
+| q, Esc | quit (in nav mode) |
+| Ctrl+C | quit (any mode) |
+| (in search) any char | append to filter query |
+| (in search) Backspace | delete one filter char |
+| (in search) Esc | exit search mode (keeps picker open) |
 
 ### Manage
 
@@ -131,9 +136,10 @@ optional `Include` line.
 
 ## How it compares
 
-A Rust TUI that's friendlier than raw `fzf` snippets, safer than
-inline-editing tools like `storm`, and lighter than full SSH GUIs —
-opinionated about respecting your existing `~/.ssh/config`.
+A small Rust TUI that's friendlier than rolling your own `fzf`
+snippets, safer than inline-editing tools like `storm`, and lighter
+than full SSH GUIs — opinionated about respecting your existing
+`~/.ssh/config`.
 
 - **Plain `ssh <alias>`**: still the source of truth. sshc reads
   your existing config; nothing about your current workflow changes.

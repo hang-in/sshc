@@ -118,18 +118,18 @@ fn render_inline(f: &mut Frame, app: &InlineApp) {
     let render_width = row_width.min(viewport.width);
     let area = Rect::new(viewport.x, viewport.y, render_width, viewport.height);
 
-    // v0.6: insert a one-line "user@host:port" summary between the host
-    // table and the two-line status block. Inline mode's min viewport is
-    // 8 rows (clamp in cli.rs), so the extra line always fits.
+    // v0.6: 2-line status block under the host table:
+    //   - line 1: host summary (nav mode) or `▸ <query>` (filter mode)
+    //   - line 2: mode-appropriate key hints
     let chunks = Layout::vertical([
         Constraint::Min(1),
         Constraint::Length(1),
-        Constraint::Length(2),
+        Constraint::Length(1),
     ])
     .split(area);
     let table_area = chunks[0];
-    let summary_area = chunks[1];
-    let status_area = chunks[2];
+    let line1_area = chunks[1];
+    let line2_area = chunks[2];
 
     let constraints = [
         Constraint::Length(w.alias + pad),
@@ -197,8 +197,11 @@ fn render_inline(f: &mut Frame, app: &InlineApp) {
         );
     f.render_stateful_widget(table, table_area, &mut state);
 
-    // One-line "user@host:port" preview of the currently selected row.
-    let summary_line = if let Some(host) = app
+    // Line 1: filter-mode shows the active query; nav mode shows a one-
+    // line user@host:port preview of the highlighted row.
+    let line1 = if app.filter_mode {
+        Paragraph::new(format!(" ▸ {}", app.query)).style(Style::default().fg(Color::Cyan))
+    } else if let Some(host) = app
         .filtered
         .get(app.selected)
         .and_then(|&i| app.hosts.get(i))
@@ -210,24 +213,19 @@ fn render_inline(f: &mut Frame, app: &InlineApp) {
             .unwrap_or(fallback_user.as_str());
         let hostname = host.hostname.as_deref().unwrap_or("-");
         let port = host.port.map(|p| format!(":{p}")).unwrap_or_default();
-        format!(" → {user}@{hostname}{port}")
+        Paragraph::new(format!(" → {user}@{hostname}{port}")).style(dim)
     } else {
-        String::new()
+        Paragraph::new("").style(dim)
     };
-    f.render_widget(Paragraph::new(summary_line).style(dim), summary_area);
 
-    let status_chunks =
-        Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(status_area);
-
-    let line1 = if !app.query.is_empty() {
-        // Inline mode is fzf-style — the user didn't press `/` to start
-        // filtering, so a leading `/` would be misleading. Use `▸` instead.
-        Paragraph::new(format!(" ▸ {}", app.query)).style(Style::default().fg(Color::Cyan))
+    // Line 2: mode-appropriate key hints.
+    let line2_text = if app.filter_mode {
+        " ↑/↓ nav  Esc cancel  Enter ssh"
     } else {
-        Paragraph::new(" type to filter  ↑/↓ or j/k nav").style(dim)
+        " ↑/↓ or j/k nav  / search  Enter ssh  q quit"
     };
-    let line2 = Paragraph::new(" Enter ssh  r reconnect  Esc cancel").style(dim);
+    let line2 = Paragraph::new(line2_text).style(dim);
 
-    f.render_widget(line1, status_chunks[0]);
-    f.render_widget(line2, status_chunks[1]);
+    f.render_widget(line1, line1_area);
+    f.render_widget(line2, line2_area);
 }
