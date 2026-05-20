@@ -106,7 +106,7 @@ brew install hang-in/tap/sshc
 ### Cargo from git
 
 ```sh
-cargo install --git https://github.com/hang-in/sshc --tag v0.6.0
+cargo install --git https://github.com/hang-in/sshc --tag v0.7.0
 ```
 
 ### From source
@@ -119,23 +119,28 @@ cargo install --path .
 
 Requires Rust 1.85+.
 
-### Windows (via WSL2)
+### Windows
 
-Native Windows builds aren't shipped — sshc relies on Unix
-file-permission semantics (0600/0700) and `flock`, and supporting
-both worlds well would dilute the "small homelab cockpit" focus.
+Native Windows support landed in v0.7.0. Use the PowerShell
+installer or grab the `sshc-x86_64-pc-windows-msvc.zip` artifact
+from the [Releases](https://github.com/hang-in/sshc/releases)
+page directly.
 
-Run it inside WSL2 instead. WSL2 is a real Linux environment, so
-the install paths above work unchanged. Point your WSL distribution
-at the SSH agent and key files you actually use, and prefer the
-WSL-side `ssh-agent` over the Windows host's.
-
-```sh
-# inside WSL2 (Ubuntu / Debian / etc.)
-cargo install --git https://github.com/hang-in/sshc --tag v0.6.0
-# or, with Linuxbrew set up
-brew install hang-in/tap/sshc
+```powershell
+# PowerShell — installs into %CARGO_HOME%\bin and updates PATH
+irm https://github.com/hang-in/sshc/releases/latest/download/sshc-installer.ps1 | iex
 ```
+
+Requires Windows 10 1809+ or Windows 11, plus the OpenSSH client
+(`Settings → Apps → Optional features → OpenSSH Client`). File
+permissions are not enforced — Windows ACLs use a different model
+than Unix mode bits, so sshc skips the 0600/0700 checks and leaves
+inheritance to the parent directory. SSH agent integration uses
+whatever your environment provides (Windows OpenSSH agent,
+Pageant); `SSH_AUTH_SOCK` is not consulted.
+
+WSL2 also works the same way as v0.6 — the Linux build is still
+shipped and behaves identically inside a WSL distribution.
 
 ## Configuration
 

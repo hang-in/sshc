@@ -8,6 +8,61 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.7.0] — 2026-05-20
+
+Platform expansion: native Windows support. No new features for
+existing macOS / Linux users — daily behavior is unchanged.
+
+### Added
+
+- **Native Windows builds** (x86_64-pc-windows-msvc). cargo-dist now
+  produces `sshc-x86_64-pc-windows-msvc.zip` alongside the existing
+  macOS / Linux artifacts, plus a `powershell` installer (`irm | iex`
+  one-liner) as the Windows analog of the `shell` installer.
+- **`windows-sys 0.59`** picked up as a target-gated dependency for
+  the LockFileEx-based lock path.
+
+### Changed
+
+- **File locking** (`storage/with_locked_write`) factored into a
+  small `try_lock_exclusive` helper, cfg-split:
+  - Unix: `nix::fcntl::flock(LOCK_EX | LOCK_NB)` — unchanged.
+  - Windows: `LockFileEx(LOCKFILE_EXCLUSIVE_LOCK |
+    LOCKFILE_FAIL_IMMEDIATELY)` over the whole file.
+    `ERROR_LOCK_VIOLATION` maps to `StorageError::LockHeldByOther`
+    so the caller-facing semantics match the Unix path.
+- **File permissions** (`setup::ensure_file_mode`, doctor's `~/.ssh`
+  check) wrap their Unix-mode logic in `#[cfg(unix)]`. The Windows
+  arm is a no-op (or, in doctor, a `PASS` line annotated "ACL not
+  checked"). Windows ACL enforcement is explicitly deferred to v0.8+.
+- **`$EDITOR` fallback**: when the env var is unset, default to
+  `notepad.exe` on Windows instead of `vi`.
+- **`SSH_AUTH_SOCK` doctor check**: on Windows, missing
+  `SSH_AUTH_SOCK` is `PASS` with the note "not applicable on Windows
+  (use Windows OpenSSH agent or Pageant)" — the env var is the wrong
+  signal there. Unix behavior unchanged.
+- `nix` moved under `[target.'cfg(unix)'.dependencies]`, so Windows
+  builds see zero transitive Unix-only deps.
+
+### Internal
+
+- Unix-only integration tests (`tests/setup_test.rs`,
+  `tests/storage_test.rs`, `tests/round_trip_test.rs`) and the
+  `src/exec/ssh.rs::tests` module gated with `#![cfg(unix)]`.
+- `cargo check --target x86_64-pc-windows-msvc` clean.
+- `cargo clippy --all-targets --target x86_64-pc-windows-msvc -- -D
+  warnings` clean.
+- `cargo clippy --all-targets -- -D warnings` (host) clean.
+- All 162 + 38 integration tests still green on Unix.
+- R-G1..R-G9 still clean. main.rs still 8 LOC.
+
+### Out of scope (deferred to v0.8+)
+
+- Windows ARM64 (`aarch64-pc-windows-msvc`) — cargo-dist target add
+  is trivial but there's no runner to exercise the binary yet.
+- Windows ACL enforcement of "private key files must be private".
+- Pageant / Windows OpenSSH agent socket discovery.
+
 ## [0.6.0] — 2026-05-20
 
 Picker depth + edit-safety pass. Two threads:

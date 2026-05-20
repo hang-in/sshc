@@ -107,7 +107,7 @@ brew install hang-in/tap/sshc
 ### 소스에서 cargo install
 
 ```sh
-cargo install --git https://github.com/hang-in/sshc --tag v0.6.0
+cargo install --git https://github.com/hang-in/sshc --tag v0.7.0
 ```
 
 ### 소스 빌드
@@ -120,23 +120,27 @@ cargo install --path .
 
 Rust 1.85 이상 툴체인이 필요합니다.
 
-### Windows (WSL2 환경)
+### Windows
 
-Windows 네이티브 빌드는 따로 배포하지 않습니다. sshc는 Unix 파일
-권한(0600/0700)과 `flock` 동시성 보장에 의존하는데, 윈도우에서
-이걸 흉내내면서 "작은 homelab cockpit" 포지셔닝을 지키긴 어려워서
-의도적으로 빼 두었습니다.
+v0.7.0부터 네이티브 Windows 빌드를 함께 배포합니다. PowerShell
+설치 스크립트 한 줄이면 끝나고, 직접 압축 파일을 받고 싶으면
+[Releases](https://github.com/hang-in/sshc/releases) 페이지에서
+`sshc-x86_64-pc-windows-msvc.zip`을 내려받으면 됩니다.
 
-대신 WSL2 안에서 그대로 쓰면 됩니다. WSL2는 진짜 Linux 환경이라
-위의 설치 방법이 그대로 통합니다. SSH 키와 ssh-agent는 Windows
-호스트 쪽이 아니라 WSL 배포판 쪽 것을 쓰는 편이 매끄럽습니다.
-
-```sh
-# WSL2 안에서 (Ubuntu / Debian 등)
-cargo install --git https://github.com/hang-in/sshc --tag v0.6.0
-# 또는 Linuxbrew가 깔려 있다면
-brew install hang-in/tap/sshc
+```powershell
+# PowerShell — %CARGO_HOME%\bin에 설치하고 PATH도 업데이트합니다
+irm https://github.com/hang-in/sshc/releases/latest/download/sshc-installer.ps1 | iex
 ```
+
+Windows 10 1809 이상 / Windows 11과 OpenSSH 클라이언트
+(`설정 → 앱 → 선택적 기능 → OpenSSH Client`)가 필요합니다. 파일
+권한 검사는 Windows ACL이 Unix 모드 비트와 다른 모델이라
+0600/0700 확인을 생략하고 상위 디렉터리 상속에 맡깁니다.
+ssh-agent 연동은 환경이 제공하는 것을 그대로 사용합니다 — Windows
+OpenSSH agent든 Pageant든 — `SSH_AUTH_SOCK`은 보지 않습니다.
+
+WSL2도 v0.6 때와 동일하게 그대로 동작합니다. Linux 빌드는 계속
+배포되고, WSL 배포판 안에서는 macOS/Linux와 똑같이 동작합니다.
 
 ## 설정과 파일
 
