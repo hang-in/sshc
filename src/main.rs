@@ -9,7 +9,7 @@ use sshs::error::AppError;
 use sshs::probe::ProbePool;
 use sshs::setup::{run_first_run_checks, SetupOutcome};
 use sshs::state;
-use sshs::tui::{install_panic_hook, runtime, TerminalGuard};
+use sshs::tui::{install_panic_hook, runtime, ScreenMode, TerminalGuard};
 use sshs::ui::modal::{ModalAction, ModalKind};
 use sshs::ui::status_bar::StatusMessage;
 
@@ -42,7 +42,9 @@ fn main() -> Result<(), AppError> {
 
     let probe_pool = ProbePool::start(&app.hosts);
 
-    let mut guard = TerminalGuard::acquire()?;
+    // v0.4 introduces ScreenMode. For now main.rs always opens the manage
+    // (alternate-screen) flow; the CLI dispatch that selects Inline lands in T5.
+    let mut guard = TerminalGuard::acquire(ScreenMode::Alternate)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
 
     loop {

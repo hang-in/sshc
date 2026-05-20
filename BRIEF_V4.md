@@ -51,8 +51,11 @@ behaviour, render layout.
    off, cursor shown, ssh spawn+wait runs.
 6. After ssh exit → process exits. Control returns to the shell.
    **The inline UI is NOT re-entered.**
-7. Inline viewport content scrolls into shell history (intentional — the
-   user sees which host they just connected to).
+7. Inline viewport area is cleared on exit (`terminal.clear()` before
+   tear-down). The shell only sees the "Connecting to <alias>..." line
+   plus whatever ssh prints. Decision after R0 prototype verification:
+   fzf-style clean exit reads better than leaving the host list in
+   scrollback.
 
 ### 4.2 Viewport height
 - Default: `15` lines.
