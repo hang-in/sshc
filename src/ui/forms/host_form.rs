@@ -8,13 +8,58 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
+use std::path::PathBuf;
 
 const FIELD_COUNT: usize = 7;
+/// Index of the IdentityFile field in `fields` / `labels`.
+const IDENTITY_INDEX: usize = 4;
 
 pub struct HostForm {
     fields: [String; FIELD_COUNT],
     active_index: usize,
     error: Option<String>,
+    /// Private-key file candidates discovered under `~/.ssh/`. The
+    /// IdentityFile field uses ↑/↓ to cycle through these so the user
+    /// doesn't have to type the full path.
+    identity_candidates: Vec<PathBuf>,
+}
+
+/// Scan `~/.ssh/` for plausible private-key files. Excludes:
+///   - public-key counterparts (`*.pub`)
+///   - well-known non-key files (`known_hosts*`, `authorized_keys`,
+///     `config*`, `environment`)
+///   - directories and hidden entries
+///
+/// Returns sorted by path. Empty Vec on any I/O failure.
+fn discover_identity_files() -> Vec<PathBuf> {
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
+    let ssh_dir = home.join(".ssh");
+    let entries = match std::fs::read_dir(&ssh_dir) {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+    const EXCLUDED_PREFIXES: &[&str] = &["known_hosts", "authorized_keys", "config", "environment"];
+    let mut candidates: Vec<PathBuf> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            if !path.is_file() {
+                return None;
+            }
+            let name = path.file_name()?.to_str()?;
+            if name.starts_with('.') || name.ends_with(".pub") {
+                return None;
+            }
+            if EXCLUDED_PREFIXES.iter().any(|p| name.starts_with(p)) {
+                return None;
+            }
+            Some(path)
+        })
+        .collect();
+    candidates.sort();
+    candidates
 }
 
 impl HostForm {
@@ -23,6 +68,7 @@ impl HostForm {
             fields: Default::default(),
             active_index: 0,
             error: None,
+            identity_candidates: discover_identity_files(),
         }
     }
 
@@ -47,7 +93,29 @@ impl HostForm {
             ],
             active_index: 0,
             error: None,
+            identity_candidates: discover_identity_files(),
         }
+    }
+
+    /// Cycle `fields[IDENTITY_INDEX]` through `identity_candidates`.
+    /// Called from ↑/↓ when IdentityFile is the active field.
+    fn cycle_identity(&mut self, forward: bool) {
+        if self.identity_candidates.is_empty() {
+            return;
+        }
+        let len = self.identity_candidates.len();
+        let current = &self.fields[IDENTITY_INDEX];
+        let pos = self
+            .identity_candidates
+            .iter()
+            .position(|p| p.display().to_string() == *current);
+        let next = match (pos, forward) {
+            (None, true) => 0,
+            (None, false) => len - 1,
+            (Some(i), true) => (i + 1) % len,
+            (Some(i), false) => (i + len - 1) % len,
+        };
+        self.fields[IDENTITY_INDEX] = self.identity_candidates[next].display().to_string();
     }
 
     fn validate(&self) -> Result<FormPayload, String> {
@@ -113,7 +181,7 @@ impl Default for HostForm {
 
 impl FormState for HostForm {
     fn render(&self, area: Rect, f: &mut Frame) {
-        let block = Block::default().title("Host").borders(Borders::ALL);
+        let block = Block::default().title(" Host ").borders(Borders::ALL);
         let inner = block.inner(area);
         f.render_widget(block, area);
 
@@ -124,50 +192,81 @@ impl FormState for HostForm {
             "Port",
             "IdentityFile",
             "Tags",
-            "Options (a; b)",
+            "Options",
         ];
+        // Right-padded so the column of `[` brackets lines up across rows.
+        // "IdentityFile" is the longest label at 12 chars; +2 for ": ".
+        const LABEL_WIDTH: u16 = 14;
 
         let outer = Layout::vertical([
-            Constraint::Length((FIELD_COUNT as u16) * 2),
+            Constraint::Length(FIELD_COUNT as u16),
+            Constraint::Length(1),
             Constraint::Min(1),
         ])
         .split(inner);
-        let field_chunks = Layout::vertical([Constraint::Length(2); FIELD_COUNT]).split(outer[0]);
+        let field_chunks = Layout::vertical([Constraint::Length(1); FIELD_COUNT]).split(outer[0]);
 
         for i in 0..FIELD_COUNT {
             let is_active = self.active_index == i;
-            let label = Line::from(format!("{}:", labels[i]));
-            let value_style = if is_active {
+
+            let row = Layout::horizontal([Constraint::Length(LABEL_WIDTH), Constraint::Min(3)])
+                .split(field_chunks[i]);
+
+            let label_style = if is_active {
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default()
+                Style::default().add_modifier(Modifier::BOLD)
             };
-            let cursor = if is_active { "█" } else { " " };
-            let value_text = format!("[ {}{} ]", self.fields[i], cursor);
-            let value_line = Line::from(Span::styled(value_text, value_style));
-
-            let field_area = field_chunks[i];
-            f.render_widget(
-                Paragraph::new(label),
-                Rect::new(field_area.x, field_area.y, field_area.width, 1),
+            let label_text = format!(
+                "{:<width$}",
+                format!("{}:", labels[i]),
+                width = LABEL_WIDTH as usize
             );
             f.render_widget(
-                Paragraph::new(value_line),
-                Rect::new(field_area.x, field_area.y + 1, field_area.width, 1),
+                Paragraph::new(Line::from(Span::styled(label_text, label_style))),
+                row[0],
+            );
+
+            let cursor = if is_active { "█" } else { "" };
+            let value_text = format!("[{}{}]", self.fields[i], cursor);
+            let value_style = if is_active {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default()
+            };
+            f.render_widget(
+                Paragraph::new(Line::from(Span::styled(value_text, value_style))),
+                row[1],
             );
         }
 
+        // Hint about the Options field syntax — sits between the fields
+        // and the footer so it doesn't crowd the label column.
+        let hint = Line::from(Span::styled(
+            " (Options: semicolon-separated SSH directives, e.g. \"ProxyJump h; ForwardAgent yes\")",
+            Style::default().fg(Color::DarkGray),
+        ));
+        f.render_widget(Paragraph::new(hint), outer[1]);
+
         let footer_line = if let Some(ref err) = self.error {
             Line::from(Span::styled(err.clone(), Style::default().fg(Color::Red)))
+        } else if self.active_index == IDENTITY_INDEX && !self.identity_candidates.is_empty() {
+            Line::from(Span::styled(
+                format!(
+                    " ↑/↓ pick from {} key(s) in ~/.ssh • Tab move • Enter submit • Esc cancel",
+                    self.identity_candidates.len()
+                ),
+                Style::default().fg(Color::Gray),
+            ))
         } else {
             Line::from(Span::styled(
-                "Tab/Shift-Tab move • Enter submit • Esc cancel • Ctrl-U clear",
+                " Tab/Shift-Tab move • Enter submit • Esc cancel • Ctrl-U clear field",
                 Style::default().fg(Color::Gray),
             ))
         };
-        f.render_widget(Paragraph::new(footer_line), outer[1]);
+        f.render_widget(Paragraph::new(footer_line), outer[2]);
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> FormOutcome {
@@ -178,6 +277,15 @@ impl FormState for HostForm {
             }
             KeyCode::BackTab => {
                 self.active_index = (self.active_index + FIELD_COUNT - 1) % FIELD_COUNT;
+                FormOutcome::Stay
+            }
+            // IdentityFile-only: ↑/↓ cycles through ~/.ssh key candidates.
+            KeyCode::Up if self.active_index == IDENTITY_INDEX => {
+                self.cycle_identity(false);
+                FormOutcome::Stay
+            }
+            KeyCode::Down if self.active_index == IDENTITY_INDEX => {
+                self.cycle_identity(true);
                 FormOutcome::Stay
             }
             KeyCode::Backspace => {

@@ -215,20 +215,33 @@ impl App {
             )));
             return Ok(());
         }
+        let alias_for_msg = host.alias.clone();
+        let identity_missing = host.identity_file.is_none();
         self.hosts.push(host);
         self.probe_states.push(ProbeState::Unknown);
         self.persist_sshc_conf()?;
         self.apply_filter();
         self.validation_cache.clear();
+        if identity_missing {
+            self.status_message = Some(StatusMessage::new(format!(
+                "'{alias_for_msg}' saved without IdentityFile — ssh will use agent or password prompt"
+            )));
+        }
         Ok(())
     }
 
     fn apply_modify(&mut self, alias: &str, new_host: Host) -> Result<(), AppError> {
         if let Some(pos) = self.hosts.iter().position(|h| h.alias == alias) {
+            let identity_missing = new_host.identity_file.is_none();
             self.hosts[pos] = new_host;
             self.persist_sshc_conf()?;
             self.apply_filter();
             self.validation_cache.clear();
+            if identity_missing {
+                self.status_message = Some(StatusMessage::new(format!(
+                    "'{alias}' saved without IdentityFile — ssh will use agent or password prompt"
+                )));
+            }
         }
         Ok(())
     }
