@@ -138,7 +138,11 @@ pub fn render(f: &mut Frame, app: &App) {
         )
     } else {
         (
-            list::status_line(app.filter_mode, &app.filter_query),
+            list::status_line(
+                app.filter_mode,
+                &app.filter_query,
+                app.selected_is_external(),
+            ),
             Style::default().add_modifier(Modifier::DIM),
         )
     };

@@ -220,7 +220,11 @@ pub fn title_line(host_count: usize, _total: usize) -> Line<'static> {
 /// Bottom status text: filter input on top of an empty second row when in
 /// filter mode; otherwise the keybinding help split across two lines so it
 /// does not clip on narrow panels.
-pub fn status_line(filter_mode: bool, filter_query: &str) -> Text<'static> {
+pub fn status_line(
+    filter_mode: bool,
+    filter_query: &str,
+    selected_external: bool,
+) -> Text<'static> {
     if filter_mode {
         Text::from(vec![
             Line::from(Span::styled(
@@ -231,15 +235,21 @@ pub fn status_line(filter_mode: bool, filter_query: &str) -> Text<'static> {
         ])
     } else {
         let dim = Style::default().add_modifier(Modifier::DIM);
+        // Second-line hints depend on what the user can actually do
+        // with the selected host. `M promote to sshc.conf` only makes
+        // sense when the selection lives in ~/.ssh/config (not already
+        // managed), so it's swapped in only on external rows.
+        let second_line = if selected_external {
+            " a add  d del  t tags  e edit  M promote  i include  ? help  q quit"
+        } else {
+            " a add  d del  t tags  e edit  i include  ? help  q quit"
+        };
         Text::from(vec![
             Line::from(Span::styled(
                 " j/k nav  / filter  Enter open  s ssh  f pin  v validate".to_string(),
                 dim,
             )),
-            Line::from(Span::styled(
-                " a add  d del  t tags  e edit  i include  ? help  q quit".to_string(),
-                dim,
-            )),
+            Line::from(Span::styled(second_line.to_string(), dim)),
         ])
     }
 }
@@ -329,7 +339,7 @@ mod tests {
 
     #[test]
     fn test_status_line_filter_mode() {
-        let text = status_line(true, "foo");
+        let text = status_line(true, "foo", false);
         let first_line: String = text.lines[0]
             .spans
             .iter()
@@ -341,7 +351,7 @@ mod tests {
 
     #[test]
     fn test_status_line_default_two_rows() {
-        let text = status_line(false, "");
+        let text = status_line(false, "", false);
         assert_eq!(text.lines.len(), 2);
         let row1: String = text.lines[0]
             .spans
@@ -355,5 +365,23 @@ mod tests {
             .collect();
         assert!(row1.contains("j/k"));
         assert!(row2.contains("? help"));
+        assert!(
+            !row2.contains("M promote"),
+            "managed-host hint must not include M promote"
+        );
+    }
+
+    #[test]
+    fn test_status_line_external_host_shows_promote_hint() {
+        let text = status_line(false, "", true);
+        let row2: String = text.lines[1]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(
+            row2.contains("M promote"),
+            "external host hint should include 'M promote', got {row2:?}"
+        );
     }
 }

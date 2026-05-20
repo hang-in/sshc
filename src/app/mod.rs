@@ -17,6 +17,13 @@ pub enum AppAction {
     SaveState,
     InjectInclude,
     DeclineInclude,
+    /// User pressed `M` on an external host: open the add/modify form
+    /// pre-filled with that host's fields so the saved entry lands in
+    /// `sshc.conf`. The original `~/.ssh/config` entry is left intact —
+    /// anti-feature 1 forbids sshc from rewriting user-authored config.
+    /// Carries the alias so the runtime can look the host up after the
+    /// list state has potentially shifted.
+    OpenPromoteForm(String),
 }
 
 /// Foreground UI mode. `List` is the host browser; `Modal` defers all key
@@ -231,6 +238,18 @@ impl App {
     /// Include injection during first-run setup).
     pub fn is_read_only(&self) -> bool {
         self.state.setup.declined_include_injection
+    }
+
+    /// True when the currently-selected host lives outside `sshc.conf`
+    /// (i.e. in `~/.ssh/config` or one of its `Include`d files). UI
+    /// surfaces use this to gate hints / actions that only apply to
+    /// external sources — notably the `M promote` hint in the status
+    /// bar and the keystroke wired in `app::input::promote_selected`.
+    /// Returns false when the list is empty or no host is selected.
+    pub fn selected_is_external(&self) -> bool {
+        self.selected_host()
+            .map(|h| h.source_file != self.sshc_conf_path_or_blank())
+            .unwrap_or(false)
     }
 
     /// Cached sshc.conf path, or an empty `PathBuf` sentinel when the home

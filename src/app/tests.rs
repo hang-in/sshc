@@ -102,6 +102,56 @@ fn test_app_m_key_unbound() {
 }
 
 #[test]
+fn test_app_promote_m_on_managed_host_emits_status_no_action() {
+    let mut h = make_host("already-mine");
+    h.source_file = crate::storage::sshc_conf_path().unwrap_or_default();
+    let mut app = App::new(vec![h]);
+    app.handle_key(KeyEvent::from(KeyCode::Char('M')));
+    // Mode stays in List (no form opened), no pending action, but the
+    // status bar carries an "already managed" hint.
+    assert!(matches!(app.mode, AppMode::List));
+    assert!(app.take_action().is_none());
+    let msg = app
+        .status_message
+        .as_ref()
+        .expect("expected status hint")
+        .text();
+    assert!(
+        msg.contains("already managed"),
+        "expected 'already managed' hint, got {msg:?}"
+    );
+}
+
+#[test]
+fn test_app_promote_m_on_external_host_emits_open_promote_form() {
+    // make_host() seeds source_file = "/test/config" — external.
+    let hosts = vec![make_host("borrowed")];
+    let mut app = App::new(hosts);
+    app.handle_key(KeyEvent::from(KeyCode::Char('M')));
+    assert_eq!(
+        app.take_action(),
+        Some(AppAction::OpenPromoteForm("borrowed".to_string()))
+    );
+    assert!(matches!(app.mode, AppMode::List));
+}
+
+#[test]
+fn test_app_promote_m_in_read_only_emits_hint_no_action() {
+    let hosts = vec![make_host("borrowed")];
+    let mut app = App::new(hosts);
+    app.state.setup.declined_include_injection = true;
+    app.handle_key(KeyEvent::from(KeyCode::Char('M')));
+    // Read-only blocks the promote, like it blocks 'a'/'t'/etc.
+    assert!(app.take_action().is_none());
+    let msg = app
+        .status_message
+        .as_ref()
+        .expect("expected read-only hint")
+        .text();
+    assert!(msg.contains("read-only"), "got {msg:?}");
+}
+
+#[test]
 fn test_app_initial_last_connected_none() {
     let app = App::new(vec![]);
     assert!(app.last_connected.is_none());

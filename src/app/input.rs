@@ -77,6 +77,7 @@ impl App {
                 KeyCode::Char('f') => self.toggle_selected_favorite(),
                 KeyCode::Char('t') => self.open_tag_form(),
                 KeyCode::Char('v') => self.validate_selected(),
+                KeyCode::Char('M') => self.promote_selected(),
                 KeyCode::Char('i') => {
                     // Force-retry the Include injection. Useful when the user
                     // declined first-run setup and now wants to enable writes,
@@ -193,5 +194,37 @@ impl App {
         } else {
             self.pending_action = Some(AppAction::EditConfig);
         }
+    }
+
+    /// v0.8 G2: pressing `M` on an external host requests promotion into
+    /// `sshc.conf` — the runtime opens an add/modify form pre-filled
+    /// with that host's fields. Pressing `M` on a host that's already
+    /// managed by sshc surfaces a status hint and changes nothing else.
+    /// Empty lists and the read-only state are silent no-ops.
+    ///
+    /// This method only routes the intent; the form prefill + write
+    /// path lands in R4.
+    fn promote_selected(&mut self) {
+        if self.filtered.is_empty() {
+            return;
+        }
+        let Some(host) = self.selected_host() else {
+            return;
+        };
+        if host.source_file == self.sshc_conf_path_or_blank() {
+            let alias = host.alias.clone();
+            self.status_message = Some(StatusMessage::new(format!(
+                "'{alias}' already managed by sshc.conf"
+            )));
+            return;
+        }
+        if self.is_read_only() {
+            self.status_message = Some(StatusMessage::new(
+                "read-only — press 'i' to add Include line and enable promote",
+            ));
+            return;
+        }
+        let alias = host.alias.clone();
+        self.pending_action = Some(AppAction::OpenPromoteForm(alias));
     }
 }
