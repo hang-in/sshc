@@ -14,14 +14,7 @@ pub fn compute_column_widths(app: &App, fallback_user: &str) -> ColumnWidths {
     let mut widths = ColumnWidths::header_baseline();
     for &idx in &app.filtered {
         let host = &app.hosts[idx];
-        let tag_prefix_len = if host.tags.is_empty() {
-            0
-        } else {
-            let joined: usize = host.tags.iter().map(|t| t.len()).sum::<usize>()
-                + host.tags.len().saturating_sub(1);
-            joined + 3
-        };
-        let alias_len = host.alias.chars().count() + tag_prefix_len;
+        let alias_len = host.alias.chars().count();
         let account_len = match host.user.as_deref() {
             Some(u) if !u.is_empty() => u.chars().count(),
             _ => fallback_user.chars().count(),
@@ -32,7 +25,14 @@ pub fn compute_column_widths(app: &App, fallback_user: &str) -> ColumnWidths {
             .map(|s| s.chars().count())
             .unwrap_or(1);
         let port_len = host.port.map(|p| p.to_string().len()).unwrap_or(0);
-        widths.extend_with(alias_len, account_len, host_len, port_len);
+        let tags_len = if host.tags.is_empty() {
+            0
+        } else {
+            // "t1, t2, t3" — joined by ", "
+            host.tags.iter().map(|t| t.chars().count()).sum::<usize>()
+                + host.tags.len().saturating_sub(1) * 2
+        };
+        widths.extend_with(alias_len, account_len, host_len, port_len, tags_len);
     }
     widths
 }
@@ -94,6 +94,9 @@ fn header_row(visibility: &ColumnVisibility) -> Row<'static> {
     if visibility.show_port {
         cells.push(Cell::from("Port"));
     }
+    if visibility.show_tags {
+        cells.push(Cell::from("Tags"));
+    }
     cells.push(Cell::from("")); // spacer
     cells.push(Cell::from("St"));
     Row::new(cells).style(Style::default().add_modifier(Modifier::BOLD))
@@ -122,6 +125,9 @@ fn host_row<'a>(
         let port_str = host.port.map(|p| p.to_string()).unwrap_or_default();
         cells.push(Cell::from(port_str));
     }
+    if visibility.show_tags {
+        cells.push(tags_cell(host));
+    }
 
     cells.push(Cell::from("")); // spacer
     cells.push(status_cell(host, app, sshc_conf, probe));
@@ -129,15 +135,20 @@ fn host_row<'a>(
     Row::new(cells)
 }
 
+/// Alias column: plain host alias. (Pre-v0.4.2 we prefixed `[t1,t2]`
+/// here; tags now live in their own column to the right.)
 fn alias_cell(host: &Host) -> Cell<'_> {
+    Cell::from(host.alias.as_str())
+}
+
+/// Tags column: comma-separated, cyan-dim. Empty for hosts without tags
+/// so the column doesn't look noisy.
+fn tags_cell(host: &Host) -> Cell<'static> {
     if host.tags.is_empty() {
-        Cell::from(host.alias.as_str())
+        Cell::from("")
     } else {
-        let prefix = format!("[{}] ", host.tags.join(","));
-        Cell::from(Line::from(vec![
-            Span::styled(prefix, Style::default().fg(Color::Cyan)),
-            Span::raw(host.alias.as_str()),
-        ]))
+        Cell::from(host.tags.join(", "))
+            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::DIM))
     }
 }
 

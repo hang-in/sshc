@@ -28,11 +28,11 @@ pub fn centered_rect(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
 }
 
 /// Decides which optional columns are shown for the current inner width.
-/// Status and Alias are always visible. Account is dropped first, then Port,
-/// then Host. Thresholds are tuned for the centered panel; even compact
-/// widths keep Account visible because the panel itself is narrow.
+/// Status and Alias are always visible. Tags are dropped first (they're
+/// the lightest metadata), then Account, then Port, then Host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ColumnVisibility {
+    pub show_tags: bool,
     pub show_account: bool,
     pub show_host: bool,
     pub show_port: bool,
@@ -42,6 +42,7 @@ impl ColumnVisibility {
     /// `width` is the inner width available for the table (after border).
     pub fn for_width(width: u16) -> Self {
         Self {
+            show_tags: width >= 55,
             show_account: width >= 40,
             show_port: width >= 30,
             show_host: width >= 22,
@@ -49,14 +50,15 @@ impl ColumnVisibility {
     }
 }
 
-/// Pre-computed widths for the five data columns. Header text lengths set
-/// the lower bound so the headers never clip; actual host rows extend this.
+/// Pre-computed widths for the data columns. Header text lengths set the
+/// lower bound so the headers never clip; actual host rows extend this.
 #[derive(Debug, Clone, Copy)]
 pub struct ColumnWidths {
     pub alias: u16,
     pub account: u16,
     pub host: u16,
     pub port: u16,
+    pub tags: u16,
 }
 
 impl ColumnWidths {
@@ -64,6 +66,7 @@ impl ColumnWidths {
     pub const HEADER_ACCOUNT: u16 = 7; // "Account"
     pub const HEADER_HOST: u16 = 4; // "Host"
     pub const HEADER_PORT: u16 = 4; // "Port"
+    pub const HEADER_TAGS: u16 = 4; // "Tags"
 
     pub fn header_baseline() -> Self {
         Self {
@@ -71,6 +74,7 @@ impl ColumnWidths {
             account: Self::HEADER_ACCOUNT,
             host: Self::HEADER_HOST,
             port: Self::HEADER_PORT,
+            tags: Self::HEADER_TAGS,
         }
     }
 
@@ -80,11 +84,13 @@ impl ColumnWidths {
         account_len: usize,
         host_len: usize,
         port_len: usize,
+        tags_len: usize,
     ) {
         self.alias = self.alias.max(alias_len as u16);
         self.account = self.account.max(account_len as u16);
         self.host = self.host.max(host_len as u16);
         self.port = self.port.max(port_len as u16);
+        self.tags = self.tags.max(tags_len as u16);
     }
 }
 
@@ -98,7 +104,7 @@ pub fn host_table_constraints_for(
     visibility: &ColumnVisibility,
 ) -> Vec<Constraint> {
     let pad: u16 = 2;
-    let mut cols = Vec::with_capacity(6);
+    let mut cols = Vec::with_capacity(7);
     cols.push(Constraint::Length(widths.alias + pad));
     if visibility.show_account {
         cols.push(Constraint::Length(widths.account + pad));
@@ -108,6 +114,9 @@ pub fn host_table_constraints_for(
     }
     if visibility.show_port {
         cols.push(Constraint::Length(widths.port + pad));
+    }
+    if visibility.show_tags {
+        cols.push(Constraint::Length(widths.tags + pad));
     }
     cols.push(Constraint::Min(2)); // spacer pushes Status to the right edge
     cols.push(Constraint::Length(3)); // Status: probe + ' ' + marker
@@ -133,6 +142,10 @@ impl ColumnWidths {
         }
         if visibility.show_port {
             total += self.port + pad;
+            col_count += 1;
+        }
+        if visibility.show_tags {
+            total += self.tags + pad;
             col_count += 1;
         }
         total += 2; // spacer minimum
@@ -170,15 +183,17 @@ mod tests {
     #[test]
     fn test_column_visibility_full_width() {
         let v = ColumnVisibility::for_width(120);
+        assert!(v.show_tags);
         assert!(v.show_account);
         assert!(v.show_host);
         assert!(v.show_port);
     }
 
     #[test]
-    fn test_column_visibility_keeps_account_in_centered_panel() {
-        // A centered panel inner width is roughly 60-70; Account must stay.
+    fn test_column_visibility_hides_tags_first() {
+        // Just below the tags threshold; everything else still on.
         let v = ColumnVisibility::for_width(50);
+        assert!(!v.show_tags);
         assert!(v.show_account);
         assert!(v.show_host);
         assert!(v.show_port);
@@ -187,12 +202,14 @@ mod tests {
     #[test]
     fn test_column_visibility_hides_account_below_40() {
         let v = ColumnVisibility::for_width(35);
+        assert!(!v.show_tags);
         assert!(!v.show_account);
     }
 
     #[test]
     fn test_column_visibility_hides_port_below_30() {
         let v = ColumnVisibility::for_width(25);
+        assert!(!v.show_tags);
         assert!(!v.show_account);
         assert!(!v.show_port);
         assert!(v.show_host);
@@ -201,6 +218,7 @@ mod tests {
     #[test]
     fn test_column_visibility_hides_host_below_22() {
         let v = ColumnVisibility::for_width(20);
+        assert!(!v.show_tags);
         assert!(!v.show_account);
         assert!(!v.show_port);
         assert!(!v.show_host);
@@ -208,10 +226,13 @@ mod tests {
 
     #[test]
     fn test_constraints_count_matches_visibility() {
-        // 5 data slots + spacer + status; visibility may drop optional slots.
+        // up to 5 data slots + spacer + status; visibility may drop optional slots.
         let widths = ColumnWidths::header_baseline();
         let full = ColumnVisibility::for_width(120);
-        assert_eq!(host_table_constraints_for(&widths, &full).len(), 6);
+        assert_eq!(host_table_constraints_for(&widths, &full).len(), 7);
+
+        let no_tags = ColumnVisibility::for_width(50);
+        assert_eq!(host_table_constraints_for(&widths, &no_tags).len(), 6);
 
         let no_account = ColumnVisibility::for_width(35);
         assert_eq!(host_table_constraints_for(&widths, &no_account).len(), 5);
@@ -227,11 +248,12 @@ mod tests {
     #[test]
     fn test_column_widths_extend_picks_max() {
         let mut w = ColumnWidths::header_baseline();
-        w.extend_with(20, 4, 18, 5);
+        w.extend_with(20, 4, 18, 5, 10);
         assert_eq!(w.alias, 20);
         assert_eq!(w.account, ColumnWidths::HEADER_ACCOUNT.max(4));
         assert_eq!(w.host, 18);
         assert_eq!(w.port, 5);
+        assert_eq!(w.tags, 10);
     }
 
     #[test]
