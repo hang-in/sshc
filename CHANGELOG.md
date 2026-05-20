@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to **sshs** are recorded here. The format roughly
+All notable changes to **sshc** are recorded here. The format roughly
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
@@ -44,7 +44,7 @@ Nothing yet.
 ### Changed
 
 - **Manage-mode key rebind**:
-  - `Enter` opens the modify form for sshs.conf-managed hosts; falls
+  - `Enter` opens the modify form for sshc.conf-managed hosts; falls
     through to `AppAction::EditConfig` (`$EDITOR` jump) for external
     hosts. Old "Enter = ssh" semantics moved to `s`.
   - `s` — ssh connect for the selected host.
@@ -74,35 +74,35 @@ Nothing yet.
 
 ### Compatibility
 
-- `~/.ssh/config`, `~/.ssh/config.d/sshs.conf`, `state.toml` unchanged.
+- `~/.ssh/config`, `~/.ssh/config.d/sshc.conf`, `state.toml` unchanged.
 - v0.3 users running `sshc` will land in inline mode on first launch.
   The host list looks similar; selection and `Enter` ssh-connect work
   as expected. To get the v0.3 behaviour back, use `sshc -m`.
 - First-run setup flow (`Include` injection) runs in **manage mode
   only**. Inline mode reads whatever hosts are already visible to
   `~/.ssh/config`; users who never run manage mode will not see the
-  setup prompt and inline still works (sshs.conf is simply absent).
+  setup prompt and inline still works (sshc.conf is simply absent).
 
 ## [0.3.0] — 2026-05-20
 
 ### Added
 
 - **Host manager (in-TUI add / modify / delete)**. New keys `a`, `m`,
-  `d` open modal forms backed by a dedicated `~/.ssh/config.d/sshs.conf`
+  `d` open modal forms backed by a dedicated `~/.ssh/config.d/sshc.conf`
   file. All writes are atomic (tempfile + rename) under a POSIX
-  `LOCK_EX` so concurrent sshs instances don't corrupt the file.
+  `LOCK_EX` so concurrent sshc instances don't corrupt the file.
 - **Tags**. New `t` key edits per-host tags; tags are stored as a
   `# @tags: a, b` comment immediately above each `Host` block. Filter
   with `@<tag>` (e.g. `@prod`) or rely on the default fuzzy filter,
   which also matches tag content as a fallback.
-- **First-run setup**. On first launch sshs offers to add an
-  `Include ~/.ssh/config.d/sshs.conf` line to `~/.ssh/config`, with a
-  dated `.bak.sshs-YYYYMMDD` backup. Decision persisted to
-  `~/.config/sshs/state.toml`.
+- **First-run setup**. On first launch sshc offers to add an
+  `Include ~/.ssh/config.d/sshc.conf` line to `~/.ssh/config`, with a
+  dated `.bak.sshc-YYYYMMDD` backup. Decision persisted to
+  `~/.config/sshc/state.toml`.
 - **Probe column**. A background thread pool issues parallel TCP
   connect probes (≤ 8 workers, 1s timeout) and surfaces results in the
   Status column. Generation guard discards stale updates after refresh.
-- **Source-aware UI**. Hosts that live outside `sshs.conf` are marked
+- **Source-aware UI**. Hosts that live outside `sshc.conf` are marked
   `·` and protected from the in-TUI add/modify/delete flow; press `e`
   to jump to the source file in `$EDITOR` instead.
 - **5-column responsive table**. Alias | Account | Host | Port | Status
@@ -149,17 +149,17 @@ Nothing yet.
 ### Compatibility
 
 - Existing `~/.ssh/config` continues to work unchanged. v0.3 only
-  introduces a new file (`~/.ssh/config.d/sshs.conf`) and an optional
+  introduces a new file (`~/.ssh/config.d/sshc.conf`) and an optional
   one-line `Include` directive in the main config.
 - v0.2 binary upgrade: on first launch the setup modal will offer the
-  Include line. Declining keeps sshs read-only — the host browser
+  Include line. Declining keeps sshc read-only — the host browser
   still works, but `a`/`m`/`d`/`t` show a "read-only" status.
 
 ## [0.2.0] — 2026-05-19
 
 ### Added
 
-- Round-trip ssh session: `Enter` spawns ssh as a child, sshs suspends
+- Round-trip ssh session: `Enter` spawns ssh as a child, sshc suspends
   raw mode + alt screen, resumes when ssh exits, and shows a transient
   status message classifying the exit (success / interrupted /
   ConnectFailed / Failed / Crashed / UnknownTermination).

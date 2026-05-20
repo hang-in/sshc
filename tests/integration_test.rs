@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use assert_fs::fixture::{FileWriteStr, PathChild};
-use sshs::config::parser::parse_config;
-use sshs::exec::editor::build_editor_command;
+use sshc::config::parser::parse_config;
+use sshc::exec::editor::build_editor_command;
 
 /// Integration test: parse a temp config file and verify host list.
 #[test]

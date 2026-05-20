@@ -5,15 +5,15 @@ use std::os::unix::io::AsRawFd;
 #[allow(deprecated)]
 use nix::fcntl::{flock, FlockArg};
 
-use sshs::error::StorageError;
-use sshs::storage::{inject_include, is_include_present, with_locked_write};
+use sshc::error::StorageError;
+use sshc::storage::{inject_include, is_include_present, with_locked_write};
 
 fn unique_path(label: &str) -> std::path::PathBuf {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    std::env::temp_dir().join(format!("sshs_{}_{}_{}", label, std::process::id(), nanos))
+    std::env::temp_dir().join(format!("sshc_{}_{}_{}", label, std::process::id(), nanos))
 }
 
 #[test]
@@ -66,21 +66,21 @@ fn test_inject_include_idempotent() {
     fs::create_dir_all(&temp_dir).expect("mkdir");
 
     let main_config = temp_dir.join("config");
-    let sshs_conf = temp_dir.join("sshs.conf");
+    let sshc_conf = temp_dir.join("sshc.conf");
 
     fs::write(&main_config, "Host other\n  HostName ex.com\n").expect("write main");
-    fs::File::create(&sshs_conf).expect("create sshs_conf");
+    fs::File::create(&sshc_conf).expect("create sshc_conf");
 
-    inject_include(&main_config, &sshs_conf).expect("inject 1");
+    inject_include(&main_config, &sshc_conf).expect("inject 1");
 
     assert!(
-        is_include_present(&main_config, &sshs_conf).expect("check present"),
+        is_include_present(&main_config, &sshc_conf).expect("check present"),
         "Include must be present after first inject"
     );
 
     let len_after_first = fs::read_to_string(&main_config).expect("read 1").len();
 
-    inject_include(&main_config, &sshs_conf).expect("inject 2 (idempotent)");
+    inject_include(&main_config, &sshc_conf).expect("inject 2 (idempotent)");
 
     let len_after_second = fs::read_to_string(&main_config).expect("read 2").len();
     assert_eq!(

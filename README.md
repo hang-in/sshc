@@ -1,7 +1,7 @@
-# sshs
+# sshc
 
 A TUI for browsing, connecting to, and managing SSH hosts defined in
-`~/.ssh/config` (and `~/.ssh/config.d/sshs.conf` for sshs-managed entries).
+`~/.ssh/config` (and `~/.ssh/config.d/sshc.conf` for sshc-managed entries).
 ~/.ssh/config 호스트를 탐색·연결·관리하는 TUI.
 
 ## What's new in v0.4
@@ -14,9 +14,9 @@ prompt returns; the inline TUI does NOT re-open.
 The full management TUI (CRUD, tags, probes, edit) is one flag away:
 `sshc -m` (or `--manage`).
 
-v0.4에서 기본 `sshs`는 **인라인 호스트 선택기**(셸 프롬프트 아래에 인라인
+v0.4에서 기본 `sshc`는 **인라인 호스트 선택기**(셸 프롬프트 아래에 인라인
 뷰포트). 타이핑으로 즉시 필터, Enter로 ssh. ssh가 끝나면 셸로 복귀 —
-TUI는 재진입하지 않습니다. 전체 관리 TUI는 `sshs -m`로 진입.
+TUI는 재진입하지 않습니다. 전체 관리 TUI는 `sshc -m`로 진입.
 
 ## Features
 
@@ -26,7 +26,7 @@ TUI는 재진입하지 않습니다. 전체 관리 TUI는 `sshs -m`로 진입.
 - `Enter` selects + spawns ssh + exits back to the shell with ssh's
   status code.
 - `r` reconnects to the most recent host (cross-session via
-  `~/.config/sshs/state.toml`).
+  `~/.config/sshc/state.toml`).
 - Falls back to manage mode automatically if the terminal is shorter
   than 12 rows.
 
@@ -40,8 +40,8 @@ TUI는 재진입하지 않습니다. 전체 관리 TUI는 `sshs -m`로 진입.
 - **Tags**: stored as `# @tags: a, b` comments above each Host block.
   Filter with `@<tag>` or rely on the default fuzzy filter (also
   matches tags as a fallback).
-- **First-run setup**: offers to add `Include ~/.ssh/config.d/sshs.conf`
-  to `~/.ssh/config` (with `.bak.sshs-YYYYMMDD` backup). Decision is
+- **First-run setup**: offers to add `Include ~/.ssh/config.d/sshc.conf`
+  to `~/.ssh/config` (with `.bak.sshc-YYYYMMDD` backup). Decision is
   persisted to state.toml.
 - **Probe column**: background TCP connect checks surface reachability
   (`●` open / `○` failed / `◌` inflight) in the Status column.
@@ -67,7 +67,7 @@ sshc -m       # Full management TUI
 sshc --manage # Same as -m
 ```
 
-On first run of manage mode, sshs offers to add an `Include` line to
+On first run of manage mode, sshc offers to add an `Include` line to
 your `~/.ssh/config` (with a dated backup). Decline and the manager
 runs read-only (browse + connect only).
 
@@ -93,7 +93,7 @@ muscle memory).
 |-----|--------|
 | `↑`/`↓`, `j`/`k` | navigate |
 | `/` | enter fuzzy filter mode (`@tag` for tag filter) |
-| `Enter` | open edit form (sshs.conf hosts) / `$EDITOR` (external) |
+| `Enter` | open edit form (sshc.conf hosts) / `$EDITOR` (external) |
 | `s` | ssh connect to selected host |
 | `r` | reconnect to last host |
 | `a` / `d` / `t` | add / delete / edit tags |
@@ -114,16 +114,16 @@ The 2-character Status column encodes `<probe><marker>`:
 - Marker: `★` last-connected host; `·` external-source host
   (read-only via TUI — use `e` or `Enter`); space otherwise.
 
-### sshs.conf
+### sshc.conf
 
 Inline mode reads any host visible to `~/.ssh/config`.
-Manage mode writes new hosts to `~/.ssh/config.d/sshs.conf` (mode
+Manage mode writes new hosts to `~/.ssh/config.d/sshc.conf` (mode
 0600). Your hand-written `~/.ssh/config` is never modified beyond a
 single `Include` line (with a dated `.bak` backup).
 
 ### State file
 
-`$XDG_CONFIG_HOME/sshs/state.toml` (fallback `~/.config/sshs/state.toml`)
+`$XDG_CONFIG_HOME/sshc/state.toml` (fallback `~/.config/sshc/state.toml`)
 remembers:
 
 - whether the user accepted/declined the `Include` injection
@@ -143,7 +143,7 @@ src/
 ├── probe/               — TCP connect worker pool (manage mode only)
 ├── setup/               — first-run flow + permissions (manage mode only)
 ├── state/               — state.toml (TOML serde)
-├── storage/             — sshs.conf flock + atomic write + Include injector
+├── storage/             — sshc.conf flock + atomic write + Include injector
 ├── tui/
 │   ├── lifecycle.rs     — TerminalGuard with ScreenMode { Alternate, Inline(N) }
 │   ├── runtime.rs       — manage event loop + ssh round-trip

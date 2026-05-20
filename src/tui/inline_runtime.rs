@@ -70,7 +70,7 @@ fn render_inline(f: &mut Frame, app: &InlineApp) {
 
     let outer = Block::default()
         .borders(Borders::ALL)
-        .title(format!(" sshs ({}) ", app.host_count()));
+        .title(format!(" sshc ({}) ", app.host_count()));
     let inner = outer.inner(size);
     f.render_widget(outer, size);
 

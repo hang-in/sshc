@@ -95,8 +95,8 @@ pub fn manage() -> Result<ExitCode, AppError> {
     let mut app = App::new_with_state(hosts, app_state);
 
     if matches!(outcome, SetupOutcome::AwaitingIncludeChoice) {
-        let prompt = "sshs needs to add an Include line to ~/.ssh/config so it can\n\
-                      manage hosts via ~/.ssh/config.d/sshs.conf. Allow?"
+        let prompt = "sshc needs to add an Include line to ~/.ssh/config so it can\n\
+                      manage hosts via ~/.ssh/config.d/sshc.conf. Allow?"
             .to_string();
         app.mode = AppMode::Modal(ModalKind::Confirmation {
             prompt,

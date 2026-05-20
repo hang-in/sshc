@@ -1,4 +1,4 @@
-# sshs v0.2.0 — Execution Plan
+# sshc v0.2.0 — Execution Plan
 
 > Companion to `BRIEF_V2.md`. This document drives the actual implementation work:
 > task units, parallel scheduling, per-task delegation payloads, and the architect's

@@ -11,8 +11,8 @@ pub use schema::{MemorySection, SetupSection, State, CURRENT_VERSION};
 
 use crate::error::{SetupError, StorageError};
 
-/// Resolve the state.toml path: $XDG_CONFIG_HOME/sshs/state.toml,
-/// fallback ~/.config/sshs/state.toml. Returns None if no home dir.
+/// Resolve the state.toml path: $XDG_CONFIG_HOME/sshc/state.toml,
+/// fallback ~/.config/sshc/state.toml. Returns None if no home dir.
 pub fn state_path() -> Option<PathBuf> {
     let base = std::env::var("XDG_CONFIG_HOME")
         .ok()
@@ -20,7 +20,7 @@ pub fn state_path() -> Option<PathBuf> {
         .map(PathBuf::from)
         .or_else(|| dirs::home_dir().map(|h| h.join(".config")));
 
-    base.map(|b| b.join("sshs").join("state.toml"))
+    base.map(|b| b.join("sshc").join("state.toml"))
 }
 
 /// Load state.toml. Returns State::default() if the file does not exist

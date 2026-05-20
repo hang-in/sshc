@@ -1,4 +1,4 @@
-//! Headless preview of the sshs TUI render path.
+//! Headless preview of the sshc TUI render path.
 //!
 //! Uses ratatui's TestBackend to render at fixed terminal sizes and dumps
 //! the resulting buffer to stdout as raw text. Useful for verifying layout
@@ -15,10 +15,10 @@ use std::path::PathBuf;
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
-use sshs::app::App;
-use sshs::config::model::Host;
-use sshs::probe::{ProbeState, ProbeUpdate};
-use sshs::ui;
+use sshc::app::App;
+use sshc::config::model::Host;
+use sshc::probe::{ProbeState, ProbeUpdate};
+use sshc::ui;
 
 fn fake_host(
     alias: &str,
@@ -45,29 +45,29 @@ fn main() {
     let width: u16 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(100);
     let height: u16 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(30);
 
-    // Resolve the real sshs.conf path so the source marker logic mirrors
+    // Resolve the real sshc.conf path so the source marker logic mirrors
     // what a fresh install would show.
-    let sshs_conf = sshs::storage::sshs_conf_path()
-        .unwrap_or_else(|| PathBuf::from("/home/user/.ssh/config.d/sshs.conf"));
+    let sshc_conf = sshc::storage::sshc_conf_path()
+        .unwrap_or_else(|| PathBuf::from("/home/user/.ssh/config.d/sshc.conf"));
     let main_config = PathBuf::from("/home/user/.ssh/config");
 
     let hosts = vec![
-        // sshs.conf-managed, user set, with tags, will be probed Open
+        // sshc.conf-managed, user set, with tags, will be probed Open
         fake_host(
             "web-1",
             Some("root"),
             "web1.example.com",
             22,
-            sshs_conf.to_str().unwrap(),
+            sshc_conf.to_str().unwrap(),
             &["prod", "api"],
         ),
-        // sshs.conf-managed, no user (-> $USER fallback dim), Failed probe
+        // sshc.conf-managed, no user (-> $USER fallback dim), Failed probe
         fake_host(
             "db-1",
             None,
             "db1.internal",
             5432,
-            sshs_conf.to_str().unwrap(),
+            sshc_conf.to_str().unwrap(),
             &["prod"],
         ),
         // external source (~/.ssh/config), user set, InFlight probe
@@ -79,13 +79,13 @@ fn main() {
             main_config.to_str().unwrap(),
             &[],
         ),
-        // sshs.conf-managed, no user, Unknown (not yet probed)
+        // sshc.conf-managed, no user, Unknown (not yet probed)
         fake_host(
             "local",
             None,
             "127.0.0.1",
             2222,
-            sshs_conf.to_str().unwrap(),
+            sshc_conf.to_str().unwrap(),
             &["dev"],
         ),
         // external source, no user, no tags

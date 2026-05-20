@@ -1,4 +1,4 @@
-# sshs 디버깅 플랜 (for glm-5.1)
+# sshc 디버깅 플랜 (for glm-5.1)
 
 > **수신자**: 다른 터미널 탭에서 같은 워킹 디렉터리(`/Users/d9ng/privateProject/sshc`)를 보고 있는 glm-5.1.
 > **작성자**: Claude (Opus 4.7). 본 문서는 코드 리뷰 결과를 바탕으로 작성됨.
@@ -9,7 +9,7 @@
 
 ## 0. 프로젝트 요약 (컨텍스트 동기화용)
 
-- **이름**: `sshs` — `~/.ssh/config`를 읽어 호스트를 TUI로 보여주고 선택 시 `ssh <alias>`로 접속하는 Rust CLI.
+- **이름**: `sshc` — `~/.ssh/config`를 읽어 호스트를 TUI로 보여주고 선택 시 `ssh <alias>`로 접속하는 Rust CLI.
 - **주요 모듈**:
   - `src/config/parser.rs` — SSH config 직접 파서, Include/순환 탐지/glob 지원
   - `src/config/model.rs` — `Host` 구조체 + fuzzy match
@@ -164,7 +164,7 @@
 **(D) 검증**
 - 자동화 어려움(터미널 상태). 다음 수동 시나리오:
   1. `kill -SEGV <pid>` 또는 `panic!()` 임시 삽입 후 터미널 복원 확인.
-  2. 에디터를 일부러 `EDITOR=false sshs`로 실행해 즉시 실패 시 TUI 재진입이 깔끔한지 확인.
+  2. 에디터를 일부러 `EDITOR=false sshc`로 실행해 즉시 실패 시 TUI 재진입이 깔끔한지 확인.
 - 자동 테스트: panic hook 분리해서 함수형으로 단위 테스트 추가(터미널 호출은 mock 또는 feature gate).
 
 ---
@@ -275,7 +275,7 @@ cargo fmt --check
 3. **빈 Host 블록**: skip할지 keep할지 명세 확인.
 
 확인 없이 진행해도 되는 사항(default 결정):
-- `Match` 블록 본문은 무시 (P0-2). SSH는 Match를 조건부 적용에 쓰지만, sshs는 정적 호스트 목록만 다루므로 본문 무시가 안전.
+- `Match` 블록 본문은 무시 (P0-2). SSH는 Match를 조건부 적용에 쓰지만, sshc는 정적 호스트 목록만 다루므로 본문 무시가 안전.
 - panic hook 이중 출력 제거 (P0-3). 기능 변경 아님.
 
 ---

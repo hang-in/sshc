@@ -1,4 +1,4 @@
-# sshs v0.2.0 — Architect Brief (v2)
+# sshc v0.2.0 — Architect Brief (v2)
 
 > Revision of v1 brief after architect review. Status: **implementation-ready spec**.
 > The implementer (glm-5.1:cloud via tunaLlama) treats sections marked **CONTRACT**
@@ -24,7 +24,7 @@
 
 ## 1. Context
 
-`sshs` v0.1 is a Rust TUI managing SSH hosts from `~/.ssh/config`:
+`sshc` v0.1 is a Rust TUI managing SSH hosts from `~/.ssh/config`:
 - ratatui + crossterm, hand-rolled parser with cycle-protected `Include`
 - 43 tests passing (lib 26 + parser 11 + integration 6)
 - `Host::fuzzy_match` via `nucleo`, `Match` directive isolated, quoted/inline-comment values handled
@@ -94,8 +94,8 @@ Turn one-shot exec launching into round-trip spawn+wait, and remember the last c
 
 **CONTRACT**
 - `TerminalGuard::suspend()` calls leave sequence BEFORE `ssh_run` is invoked. With raw mode disabled and alt-screen exited, the terminal returns to cooked mode and ssh inherits stdio normally.
-- No `setsid()` call: ssh inherits parent's pgid. SIGINT (Ctrl-C) is delivered to the foreground process group — both ssh and sshs.
-- ssh has its own SIGINT handler and exits with code 130. The parent (`sshs`) ignores SIGINT during the `wait()` syscall on most platforms (default Rust behavior is to NOT install a SIGINT handler; the kernel's default for an interactive shell-spawned process is to terminate, but during a blocking `wait` the signal interrupts `wait` returning `EINTR`, which Rust's `Command::status` retries internally).
+- No `setsid()` call: ssh inherits parent's pgid. SIGINT (Ctrl-C) is delivered to the foreground process group — both ssh and sshc.
+- ssh has its own SIGINT handler and exits with code 130. The parent (`sshc`) ignores SIGINT during the `wait()` syscall on most platforms (default Rust behavior is to NOT install a SIGINT handler; the kernel's default for an interactive shell-spawned process is to terminate, but during a blocking `wait` the signal interrupts `wait` returning `EINTR`, which Rust's `Command::status` retries internally).
 - **Implementation requirement**: verify with `mock_ssh` integration test that sends `exit 130` and confirms parent observes `SshResult::Interrupted` and continues running.
 - **If** the test reveals that the parent is killed by SIGINT before observing the child exit, install a temporary SIGINT-ignore handler around `Command::status()` using `ctrlc` crate. Flag this in implementation if it occurs.
 
@@ -506,7 +506,7 @@ grep -lE "anyhow::Result|anyhow::Error" src/app.rs src/tui/lifecycle.rs src/exec
 
 Each of the following on **macOS Terminal.app** + **iTerm2** at minimum:
 
-- [ ] Start `sshs`, pick a host, Enter → ssh connects, `exit` from ssh, TUI reappears with same host selected.
+- [ ] Start `sshc`, pick a host, Enter → ssh connects, `exit` from ssh, TUI reappears with same host selected.
 - [ ] During ssh: Ctrl-C → ssh exits 130, TUI reappears, status bar **silent**.
 - [ ] Connect to a host with bad hostname → status bar shows `Connection failed (255): {alias}` for ~3s, then clears.
 - [ ] Connect to a host; after returning, the host shows `★` prefix in the list.

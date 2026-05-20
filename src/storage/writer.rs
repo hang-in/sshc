@@ -83,7 +83,7 @@ mod tests {
     #[test]
     fn test_writer_atomic_roundtrip() {
         let temp = assert_fs::TempDir::new().unwrap();
-        let path = temp.child("sshs.conf");
+        let path = temp.child("sshc.conf");
         path.touch().unwrap();
 
         with_locked_write(path.path(), false, |_old| "new-content".to_string()).unwrap();

@@ -2,8 +2,8 @@ use std::net::TcpListener;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use sshs::config::model::Host;
-use sshs::probe::{ProbePool, ProbeState};
+use sshc::config::model::Host;
+use sshc::probe::{ProbePool, ProbeState};
 
 fn make_host(hostname: &str, port: u16) -> Host {
     Host {

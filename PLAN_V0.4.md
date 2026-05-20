@@ -1,4 +1,4 @@
-# sshs v0.4.0 — Execution Plan
+# sshc v0.4.0 — Execution Plan
 
 > Companion to `BRIEF_V4.md`. Drives the implementation: 7 tasks across
 > 6 rounds (R0–R5). Architect (this Claude session) reviews every
@@ -185,7 +185,7 @@ Each sub-patch verifies build green before the next.
 
 ### T4 — App Enter/s/m rebind
 - `handle_list_key` (not in filter_mode):
-  - `KeyCode::Enter` → if `selected_host().source_file == sshs.conf`: emit
+  - `KeyCode::Enter` → if `selected_host().source_file == sshc.conf`: emit
     nothing here, instead call `self.open_modify_form()`. Otherwise emit
     `AppAction::EditConfig` (architect: confirm whether emit-vs-call
     semantics; both are pre-existing patterns).

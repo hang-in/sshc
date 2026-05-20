@@ -47,7 +47,7 @@ pub fn fallback_user() -> String {
 /// width. The width drives column visibility (BRIEF_V3 §5 Q6 priority).
 pub fn create_host_table<'a>(app: &'a App, width: u16) -> (Table<'a>, TableState) {
     let visibility = ColumnVisibility::for_width(width);
-    let sshs_conf = crate::storage::sshs_conf_path();
+    let sshc_conf = crate::storage::sshc_conf_path();
     let fallback_user = fallback_user();
     let widths = compute_column_widths(app, &fallback_user);
 
@@ -64,7 +64,7 @@ pub fn create_host_table<'a>(app: &'a App, width: u16) -> (Table<'a>, TableState
             host_row(
                 host,
                 app,
-                sshs_conf.as_deref(),
+                sshc_conf.as_deref(),
                 &visibility,
                 probe,
                 &fallback_user,
@@ -102,7 +102,7 @@ fn header_row(visibility: &ColumnVisibility) -> Row<'static> {
 fn host_row<'a>(
     host: &'a Host,
     app: &App,
-    sshs_conf: Option<&Path>,
+    sshc_conf: Option<&Path>,
     visibility: &ColumnVisibility,
     probe: ProbeState,
     fallback_user: &str,
@@ -124,7 +124,7 @@ fn host_row<'a>(
     }
 
     cells.push(Cell::from("")); // spacer
-    cells.push(status_cell(host, app, sshs_conf, probe));
+    cells.push(status_cell(host, app, sshc_conf, probe));
 
     Row::new(cells)
 }
@@ -162,7 +162,7 @@ fn account_cell(host: &Host, fallback_user: &str) -> Cell<'static> {
 fn status_cell(
     host: &Host,
     app: &App,
-    sshs_conf: Option<&Path>,
+    sshc_conf: Option<&Path>,
     probe: ProbeState,
 ) -> Cell<'static> {
     let (probe_glyph, probe_color) = match probe {
@@ -174,7 +174,7 @@ fn status_cell(
 
     let marker = if app.last_connected.as_deref() == Some(host.alias.as_str()) {
         '★'
-    } else if sshs_conf
+    } else if sshc_conf
         .map(|conf| host.source_file != conf)
         .unwrap_or(false)
     {
@@ -196,10 +196,10 @@ fn status_cell(
     Cell::from(Line::from(vec![probe_span, Span::raw(" "), marker_span]))
 }
 
-/// Title-bar text shown in the outer block (e.g., " sshs (12) ").
+/// Title-bar text shown in the outer block (e.g., " sshc (12) ").
 pub fn title_line(host_count: usize, _total: usize) -> Line<'static> {
     Line::from(Span::styled(
-        format!(" sshs ({}) ", host_count),
+        format!(" sshc ({}) ", host_count),
         Style::default().add_modifier(Modifier::BOLD),
     ))
 }
@@ -286,8 +286,8 @@ mod tests {
         let h = host_in("/elsewhere", "alpha", vec![]);
         let mut app = App::new(vec![h.clone()]);
         app.last_connected = Some("alpha".to_string());
-        let sshs_conf = PathBuf::from("/managed/sshs.conf");
-        let _ = status_cell(&h, &app, Some(sshs_conf.as_path()), ProbeState::Unknown);
+        let sshc_conf = PathBuf::from("/managed/sshc.conf");
+        let _ = status_cell(&h, &app, Some(sshc_conf.as_path()), ProbeState::Unknown);
     }
 
     #[test]
@@ -309,7 +309,7 @@ mod tests {
     fn test_title_line_includes_count() {
         let line = title_line(7, 12);
         let s: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(s.contains("sshs"));
+        assert!(s.contains("sshc"));
         assert!(s.contains("(7)"));
     }
 

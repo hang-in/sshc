@@ -2,9 +2,9 @@ use std::path::PathBuf;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use sshs::config::model::Host;
-use sshs::inline_app::{InlineAction, InlineApp};
-use sshs::state::{MemorySection, State, CURRENT_VERSION};
+use sshc::config::model::Host;
+use sshc::inline_app::{InlineAction, InlineApp};
+use sshc::state::{MemorySection, State, CURRENT_VERSION};
 
 fn host(alias: &str, hostname: &str) -> Host {
     Host {
