@@ -278,4 +278,110 @@ the fix" that closed only the *visible* layer of the failure. We
 have to actually see the host land in `sshc.conf` from a real
 Windows session this time.
 
+## 10. Resolution — v0.8.2 (2026-05-21)
+
+**Shipped.** `a` now actually writes on Windows, verified by the user
+on the real `C:\Users\사자\.ssh\config.d\sshc.conf`. Root cause was
+**not** what §4 suspected.
+
+### What the §4 dbg! lines actually showed
+
+Running `apply_form(FormContext::AddHost, FormPayload::Host{..})`
+end-to-end (via a new `#[test]` rather than the TUI — `apply_form`,
+`apply_add`, `persist_sshc_conf` are all reachable from
+`src/app/tests.rs`) produced:
+
+```
+[DEBUG] apply_form ctx=AddHost payload_variant=Host
+[DEBUG] apply_add called for alias="wintest"
+[DEBUG]   host.source_file    = "...\sshc.conf"
+[DEBUG]   self.sshc_conf_path = Some("...\sshc.conf")   ← byte-equal
+[DEBUG]   already exists? false
+[DEBUG] persist_sshc_conf path = "...\sshc.conf"
+[DEBUG]   path bytes (lossy) = [...]
+[DEBUG]   path wide  (WTF-16) = [...]                   ← also equal
+[DEBUG]   host="wintest" source_file="...\sshc.conf" eq=true
+[DEBUG]   owned_hosts.len() = 1
+                                                         ← §4.3 line
+                                                           never fired
+status_message: "form apply failed: failed to read: ... (os error 33)"
+```
+
+§4.1 fine, §4.2 fine, §4.3 **never reached**. `os error 33` =
+`ERROR_LOCK_VIOLATION`. Failure was inside `with_locked_write`
+*before* the mutator ran.
+
+### Real root cause
+
+`src/storage/writer.rs::with_locked_write` did:
+
+```rust
+let file = OpenOptions::new()...open(path)?;
+try_lock_exclusive(&file)?;          // LockFileEx, mandatory on Windows
+let content = {
+    let mut reader = File::open(path)?;   // ← second handle into locked range
+    reader.read_to_string(...)?;
+    ...
+};
+```
+
+`LockFileEx` is **mandatory** — even the same process can't open a
+second handle into the locked range without tripping
+`ERROR_LOCK_VIOLATION`. `flock` is advisory, so Unix silently let the
+second open succeed, which is why every release from v0.7 onward
+looked fine on macOS/Linux while consistently failing on Windows.
+
+### Why the user saw no error
+
+`apply_form` *did* set `status_message =
+"form apply failed: failed to read: ... (os error 33)"`. The modal
+close redraw then fired immediately and overwrote the status bar
+before the user could see it. So "no error message surfaces" was a
+display-layer artifact, not a missing error path. Fixing the
+underlying write makes the symptom moot, but worth knowing for any
+future class of IO error in this flow — if it happens again the
+status_message will be set and then silently disappear.
+
+### Why §4's NFC/NFD theory was wrong
+
+`path wide (WTF-16)` showed `사 = U+C0AC` and `자 = U+C790` as
+single code units — i.e. **already NFC**. Both sides of the
+comparison used the same `Option<PathBuf>` cache (v0.8.1's
+unification), so there was no second-recompute opportunity for a
+mismatch anyway. v0.8.1's path-cache unification was internally
+correct as defense-in-depth but unrelated to the bug.
+
+### The fix
+
+`writer.rs` now reads from the already-locked handle via
+`seek(SeekFrom::Start(0)) + read_to_string`. One handle, one lock,
+no violation. v0.8.1's path-cache unification is left in place
+unchanged. Added
+`app::tests::test_apply_form_add_host_writes_through_locked_writer`
+as a cross-platform regression guard that drives `apply_form` against
+a temp path — Windows would have caught this within seconds had the
+test existed in v0.7.
+
+### Lessons for the next handoff
+
+1. **Don't trust the previous changelog's diagnosis.** v0.8.1's
+   NFC/NFD story was plausible and even seemed consistent with the
+   Korean home-dir clue, but the WTF-16 print made it falsifiable in
+   one test run. Print **bytes** when chasing a path-equality bug,
+   not `Debug`-formatted paths.
+2. **Status-bar messages are easy to miss on modal close.** When the
+   bug report says "no error", verify by *setting a known
+   status_message* before submitting and seeing whether it survives.
+   In this case the error was always being set; the UI just ate it.
+3. **`apply_form` is reachable from `src/app/tests.rs`** — all the
+   suspect functions are `pub(super)`/`fn`, and `sshc_conf_path` can
+   be overridden post-construction. You don't need to drive the TUI
+   to reproduce the save path; an `#[test]` with `assert_fs::TempDir`
+   is sufficient for everything below the modal/key-input layer.
+4. **`LockFileEx` is mandatory on Windows.** Any future "lock then
+   reopen the same path" pattern in this codebase will fail the same
+   way. The fix in `writer.rs` is the local cure; the systemic
+   principle is "lock the handle you'll read/write through, don't
+   re-open by path while holding a lock."
+
 ## End of handoff.
