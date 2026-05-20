@@ -8,6 +8,24 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.5.1] — 2026-05-20
+
+Tiny patch — adds a read-only environment check. Nothing else changes.
+
+### Added
+
+- **`sshc --doctor`** prints a six-line report:
+  - `~/.ssh/config` exists
+  - `~/.ssh` directory mode (expects 0700)
+  - `~/.ssh/config.d/sshc.conf` exists
+  - `Include` line present in `~/.ssh/config`
+  - `ssh` binary on PATH (shows the OpenSSH version banner)
+  - `SSH_AUTH_SOCK` environment variable
+
+  Report-only — no files are modified. Exit code is 0 unless any check
+  is `FAIL`; `WARN` does not fail the run (e.g. a missing
+  `SSH_AUTH_SOCK` is a heads-up, not an error).
+
 ## [0.5.0] — 2026-05-20
 
 Refactor lands: `src/app/mod.rs` (944 LOC pre-split) is now broken into

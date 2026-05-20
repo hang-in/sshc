@@ -7,6 +7,7 @@
 
 use std::process::ExitCode;
 
+use crate::doctor;
 use crate::error::AppError;
 use crate::run;
 use crate::tui::ScreenMode;
@@ -46,7 +47,9 @@ fn print_help() {
              -m, --manage    Open the full management TUI (alternate screen).\n                    \
                              Without this flag sshc opens an inline fzf-style picker.\n    \
              -h, --help      Print this help and exit.\n    \
-             -V, --version   Print version and exit.\n\n\
+             -V, --version   Print version and exit.\n    \
+             --doctor        Run an environment report (~/.ssh, sshc.conf,\n                    \
+                             Include line, ssh binary, SSH_AUTH_SOCK) and exit.\n\n\
          Inline keys: type to filter, ↑/↓ or j/k navigate, Enter ssh,\n             \
                       r reconnect, Esc clear/quit, Ctrl+C quit.\n\
          Manage keys: see `?` inside the TUI.\n\n\
@@ -83,6 +86,9 @@ pub fn run(args: Vec<String>) -> ExitCode {
     if args.iter().any(|a| a == "-V" || a == "--version") {
         print_version();
         return ExitCode::SUCCESS;
+    }
+    if args.iter().any(|a| a == "--doctor") {
+        return doctor::run();
     }
     if let Some(alias) = args.iter().skip(1).find(|a| !a.starts_with('-')) {
         return into_exit_code(run::direct(alias));

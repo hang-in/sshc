@@ -46,6 +46,7 @@ TUI and `ssh`s straight in — handy for shell aliases and scripts.
 | `sshc` | Inline | fzf-style host picker → ssh → back to shell. No alternate-screen takeover. |
 | `sshc <alias>` | Direct | Skip the picker, look up `<alias>` in your config, `ssh` immediately. Unknown alias → exit 1. |
 | `sshc -m` | Manage | Full TUI: add/edit/delete hosts, tags, probe glyphs, `$EDITOR` jump. |
+| `sshc --doctor` | Doctor | Read-only environment report (`~/.ssh`, sshc.conf, Include line, `ssh` binary, `SSH_AUTH_SOCK`). Exits non-zero only on `FAIL`. |
 
 Inline mode never leaves your scrollback view. Manage mode opens the
 classic full-screen TUI behind a flag because that's the right surface
@@ -98,7 +99,7 @@ brew install hang-in/tap/sshc
 ### Cargo from git
 
 ```sh
-cargo install --git https://github.com/hang-in/sshc --tag v0.5.0
+cargo install --git https://github.com/hang-in/sshc --tag v0.5.1
 ```
 
 ### From source

@@ -45,6 +45,7 @@ sshc
 | `sshc` | 인라인 | fzf 스타일 picker → ssh → 셸 복귀. Alt 화면 미사용. |
 | `sshc <alias>` | 다이렉트 | picker 생략, `<alias>`를 설정에서 찾아 즉시 `ssh`. 알 수 없는 alias → exit 1. |
 | `sshc -m` | 관리 | 풀 TUI: 추가/수정/삭제, 태그, probe 글리프, `$EDITOR` 점프. |
+| `sshc --doctor` | 진단 | 읽기 전용 환경 점검 (`~/.ssh`, sshc.conf, Include 라인, `ssh` 바이너리, `SSH_AUTH_SOCK`). `FAIL`일 때만 non-zero 종료. |
 
 인라인 모드는 스크롤백을 그대로 둡니다. 관리 모드는 편집에 적합한
 풀스크린 TUI라서 별도 플래그 뒤에 둡니다.
@@ -96,7 +97,7 @@ brew install hang-in/tap/sshc
 ### git에서 cargo install
 
 ```sh
-cargo install --git https://github.com/hang-in/sshc --tag v0.5.0
+cargo install --git https://github.com/hang-in/sshc --tag v0.5.1
 ```
 
 ### 소스 빌드
