@@ -128,6 +128,10 @@ sshc는 사용자가 손으로 작성한 `~/.ssh/config`를 한 줄 `Include`
 
 ## 다른 도구와의 비교
 
+`fzf` 스니펫보다 친절하고, `storm` 같은 직접 편집 도구보다 안전하며,
+본격 SSH GUI보다 가벼운 Rust TUI — 기존 `~/.ssh/config`를 존중하는 게
+핵심입니다.
+
 - **그냥 `ssh <alias>`**: 변함없는 source of truth. sshc는 기존 설정을
   읽기만 합니다 — 현재 사용 방식이 바뀌지 않습니다.
 - **[storm](https://github.com/emre/storm)**: Python CLI로 `~/.ssh/config`를

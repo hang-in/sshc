@@ -130,6 +130,10 @@ optional `Include` line.
 
 ## How it compares
 
+A Rust TUI that's friendlier than raw `fzf` snippets, safer than
+inline-editing tools like `storm`, and lighter than full SSH GUIs —
+opinionated about respecting your existing `~/.ssh/config`.
+
 - **Plain `ssh <alias>`**: still the source of truth. sshc reads
   your existing config; nothing about your current workflow changes.
 - **[storm](https://github.com/emre/storm)**: a Python CLI that
