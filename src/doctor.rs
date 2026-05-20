@@ -212,11 +212,27 @@ fn check_ssh_auth_sock() -> Check {
             status: Status::Pass,
             detail: format!("set ({})", short_path(Path::new(&p))),
         },
-        _ => Check {
-            name: "SSH_AUTH_SOCK",
-            status: Status::Warn,
-            detail: "not set — ssh-agent identities won't be available".into(),
-        },
+        _ => {
+            #[cfg(unix)]
+            {
+                Check {
+                    name: "SSH_AUTH_SOCK",
+                    status: Status::Warn,
+                    detail: "not set — ssh-agent identities won't be available".into(),
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                // Windows uses named pipes for the OpenSSH agent and
+                // Pageant for PuTTY/WinSCP. SSH_AUTH_SOCK is irrelevant
+                // there. Report informationally rather than as a WARN.
+                Check {
+                    name: "SSH_AUTH_SOCK",
+                    status: Status::Pass,
+                    detail: "Windows: not applicable (use Windows OpenSSH agent or Pageant)".into(),
+                }
+            }
+        }
     }
 }
 

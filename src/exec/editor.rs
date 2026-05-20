@@ -7,8 +7,11 @@ use std::process::Command;
 /// For vim-like editors (vi, vim, nvim, nano), the `+<line>` flag is added
 /// to jump to the specified line. For other editors, the file is opened
 /// without a line specifier.
+///
+/// `EDITOR` env var wins on every platform. When unset, the default is
+/// `vi` on Unix and `notepad.exe` on Windows.
 pub fn build_editor_command(file: &Path, line: usize) -> Command {
-    let editor = env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+    let editor = env::var("EDITOR").unwrap_or_else(|_| default_editor().to_string());
     let mut cmd = Command::new(&editor);
 
     if is_vim_like(&editor) && line > 0 {
@@ -17,6 +20,16 @@ pub fn build_editor_command(file: &Path, line: usize) -> Command {
 
     cmd.arg(file);
     cmd
+}
+
+#[cfg(unix)]
+fn default_editor() -> &'static str {
+    "vi"
+}
+
+#[cfg(windows)]
+fn default_editor() -> &'static str {
+    "notepad.exe"
 }
 
 /// Returns true if the editor supports the `+<line>` flag for jumping to a line.
@@ -49,9 +62,10 @@ mod tests {
     }
 
     #[test]
-    fn test_editor_fallback_to_vi() {
-        // Without EDITOR set, should default to "vi"
-        // Note: this test assumes EDITOR is not set to something unusual
+    fn test_editor_fallback_to_platform_default() {
+        // Without EDITOR set, default is platform-specific:
+        //   Unix    → vi
+        //   Windows → notepad.exe
         let original = env::var("EDITOR").ok();
         env::remove_var("EDITOR");
 
@@ -59,7 +73,10 @@ mod tests {
         let cmd = build_editor_command(&file, 1);
 
         let program = cmd.get_program().to_string_lossy().to_string();
+        #[cfg(unix)]
         assert_eq!(program, "vi");
+        #[cfg(windows)]
+        assert_eq!(program, "notepad.exe");
 
         // Restore EDITOR
         if let Some(val) = original {
