@@ -22,11 +22,14 @@ env_logger = "0.11"
 toml = "0.8"
 serde = { version = "1", features = ["derive"] }
 # Sync HTTP client for `sshc --doctor`'s update-availability check.
-# `native-tls` uses system TLS (SecureTransport / SChannel / OpenSSL),
-# keeping the binary slim and inheriting the system trust store.
-# `default-features = false` drops `rustls` and `cookies` (we use
-# neither).
-ureq = { version = "2.10", default-features = false, features = ["native-tls"] }
+# Default features pull in `rustls` + webpki-roots: bundled Mozilla
+# trust store, single static binary, no OpenSSL / SChannel /
+# SecureTransport dependency at install time. We tried
+# `default-features = false, features = ["native-tls"]` first but
+# ureq 2.12 ships without an active TLS backend in that combo,
+# causing `--doctor`'s update check to fail with "no TLS backend
+# is configured".
+ureq = "2.10"
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["fs"] }
