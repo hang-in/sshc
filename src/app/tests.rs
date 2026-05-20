@@ -1,4 +1,5 @@
 use super::*;
+use crate::ui::modal::{ModalAction, ModalKind};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::path::PathBuf;
 
