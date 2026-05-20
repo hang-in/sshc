@@ -8,6 +8,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 
 use super::{App, AppAction, AppMode};
 use crate::ui::modal::{FormOutcome, ModalAction, ModalKind};
+use crate::ui::status_bar::StatusMessage;
 
 impl App {
     pub fn handle_key(&mut self, key: KeyEvent) {
@@ -76,6 +77,7 @@ impl App {
                 }
                 KeyCode::Char('a') => self.open_add_form(),
                 KeyCode::Char('d') => self.open_delete_confirm(),
+                KeyCode::Char('f') => self.toggle_selected_favorite(),
                 KeyCode::Char('t') => self.open_tag_form(),
                 KeyCode::Char('i') => {
                     // Force-retry the Include injection. Useful when the user
@@ -156,6 +158,24 @@ impl App {
                 _ => {}
             },
         }
+    }
+
+    /// Toggle pinned status on the selected host. Queues a state save
+    /// and re-runs the filter so the pinned glyph + sort order update
+    /// immediately. Manage-mode only; the inline picker handles `f`
+    /// itself with a status message instead.
+    fn toggle_selected_favorite(&mut self) {
+        let Some(alias) = self.selected_host().map(|h| h.alias.clone()) else {
+            return;
+        };
+        let now_pinned = self.toggle_favorite(&alias);
+        self.status_message = Some(StatusMessage::new(if now_pinned {
+            format!("★ pinned: {alias}")
+        } else {
+            format!("pin removed: {alias}")
+        }));
+        self.pending_action = Some(AppAction::SaveState);
+        self.apply_filter();
     }
 
     /// v0.4 Enter behaviour: open the edit form for sshc.conf-managed

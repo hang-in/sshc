@@ -240,6 +240,24 @@ impl App {
     pub(super) fn sshc_conf_path_or_blank(&self) -> std::path::PathBuf {
         self.sshc_conf_path.clone().unwrap_or_default()
     }
+
+    /// Returns true when `alias` is in `state.memory.favorites`.
+    pub fn is_favorite(&self, alias: &str) -> bool {
+        self.state.memory.favorites.iter().any(|a| a == alias)
+    }
+
+    /// Toggle a host's pinned status. Returns `true` if the host is now
+    /// pinned, `false` if it was removed. Caller is responsible for
+    /// queuing `AppAction::SaveState` and re-sorting via `apply_filter`.
+    pub(super) fn toggle_favorite(&mut self, alias: &str) -> bool {
+        if let Some(pos) = self.state.memory.favorites.iter().position(|a| a == alias) {
+            self.state.memory.favorites.remove(pos);
+            false
+        } else {
+            self.state.memory.favorites.push(alias.to_string());
+            true
+        }
+    }
 }
 
 #[cfg(test)]

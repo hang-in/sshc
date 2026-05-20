@@ -8,12 +8,21 @@ impl App {
     /// - `@<needle>` → tag-only filter. `@` alone lists every host that has any tag.
     /// - bare query → nucleo fuzzy match against alias/hostname; tag substring is a
     ///   fallback when the fuzzy score is 0.
+    ///
+    /// Sort order (highest priority first):
+    ///   1. favorited hosts (`state.memory.favorites`) float to the top
+    ///   2. fuzzy / tag-substring score, descending
     pub(super) fn apply_filter(&mut self) {
         let query = self.filter_query.clone();
+        // Snapshot the favorites list once so the sort comparator doesn't
+        // need to re-borrow `self`.
+        let favorites: std::collections::HashSet<String> =
+            self.state.memory.favorites.iter().cloned().collect();
+        let is_fav = |idx: usize| favorites.contains(&self.hosts[idx].alias);
 
         if let Some(tag_query) = query.strip_prefix('@') {
             let needle = tag_query.trim().to_lowercase();
-            self.filtered = self
+            let mut indices: Vec<usize> = self
                 .hosts
                 .iter()
                 .enumerate()
@@ -26,6 +35,8 @@ impl App {
                 })
                 .map(|(i, _)| i)
                 .collect();
+            indices.sort_by(|&a, &b| is_fav(b).cmp(&is_fav(a)));
+            self.filtered = indices;
         } else {
             let needle = query.to_lowercase();
             let mut scored: Vec<(usize, u32)> = self
@@ -44,7 +55,7 @@ impl App {
                     }
                 })
                 .collect();
-            scored.sort_by(|a, b| b.1.cmp(&a.1));
+            scored.sort_by(|a, b| is_fav(b.0).cmp(&is_fav(a.0)).then(b.1.cmp(&a.1)));
             self.filtered = scored.into_iter().map(|(i, _)| i).collect();
         }
 

@@ -356,3 +356,45 @@ fn test_help_modal_open_on_question() {
     app.handle_key(KeyEvent::from(KeyCode::Char('?')));
     assert!(matches!(app.mode, AppMode::Modal(ModalKind::Info { .. })));
 }
+
+#[test]
+fn test_toggle_favorite_round_trip() {
+    let mut app = App::new(vec![make_host("alpha"), make_host("beta")]);
+    assert!(!app.is_favorite("alpha"));
+    let pinned = app.toggle_favorite("alpha");
+    assert!(pinned);
+    assert!(app.is_favorite("alpha"));
+    let pinned_again = app.toggle_favorite("alpha");
+    assert!(!pinned_again);
+    assert!(!app.is_favorite("alpha"));
+}
+
+#[test]
+fn test_favorite_floats_to_top_of_filter() {
+    let mut app = App::new(vec![
+        make_host("alpha"),
+        make_host("beta"),
+        make_host("gamma"),
+    ]);
+    app.filter_query = "a".to_string();
+    app.apply_filter();
+    assert!(!app.filtered.is_empty());
+    app.toggle_favorite("gamma");
+    app.apply_filter();
+    let post = app
+        .filtered
+        .iter()
+        .map(|&i| app.hosts[i].alias.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(post[0], "gamma", "pinned host must float to top");
+}
+
+#[test]
+fn test_f_key_in_manage_toggles_pin_and_queues_save() {
+    let mut h = make_host("managed");
+    h.source_file = crate::storage::sshc_conf_path().unwrap_or_default();
+    let mut app = App::new(vec![h]);
+    app.handle_key(KeyEvent::from(KeyCode::Char('f')));
+    assert!(app.is_favorite("managed"));
+    assert_eq!(app.take_action(), Some(AppAction::SaveState));
+}
