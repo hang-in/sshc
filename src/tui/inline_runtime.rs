@@ -183,7 +183,9 @@ fn render_inline(f: &mut Frame, app: &InlineApp) {
         Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(status_area);
 
     let line1 = if !app.query.is_empty() {
-        Paragraph::new(format!(" /{}", app.query)).style(Style::default().fg(Color::Cyan))
+        // Inline mode is fzf-style — the user didn't press `/` to start
+        // filtering, so a leading `/` would be misleading. Use `▸` instead.
+        Paragraph::new(format!(" ▸ {}", app.query)).style(Style::default().fg(Color::Cyan))
     } else {
         Paragraph::new(" type to filter  ↑/↓ or j/k nav").style(dim)
     };

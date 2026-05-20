@@ -235,7 +235,7 @@ pub fn status_line(filter_mode: bool, filter_query: &str) -> Text<'static> {
                 dim,
             )),
             Line::from(Span::styled(
-                " a add  d del  m modify  t tags  e edit  ? help  q quit".to_string(),
+                " a add  d del  t tags  e edit  i include  ? help  q quit".to_string(),
                 dim,
             )),
         ])

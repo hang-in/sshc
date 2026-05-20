@@ -148,6 +148,15 @@ impl App {
                 KeyCode::Char('a') => self.open_add_form(),
                 KeyCode::Char('d') => self.open_delete_confirm(),
                 KeyCode::Char('t') => self.open_tag_form(),
+                KeyCode::Char('i') => {
+                    // Force-retry the Include injection. Useful when the user
+                    // declined first-run setup and now wants to enable writes,
+                    // or to repair a missing Include line. The runtime
+                    // (handle_inject_include) flips include_check_done = true
+                    // and declined_include_injection = false on success.
+                    self.state.setup.declined_include_injection = false;
+                    self.pending_action = Some(AppAction::InjectInclude);
+                }
                 KeyCode::Char('?') => self.open_help_modal(),
                 KeyCode::Char('q') | KeyCode::Esc => {
                     self.pending_action = Some(AppAction::Quit);
@@ -228,7 +237,7 @@ impl App {
     fn open_add_form(&mut self) {
         if self.is_read_only() {
             self.status_message = Some(StatusMessage::new(
-                "read-only: sshc.conf is not Included by main ssh_config",
+                "read-only — press 'i' to add Include line and enable writes",
             ));
             return;
         }
@@ -239,7 +248,9 @@ impl App {
 
     fn open_modify_form(&mut self) {
         if self.is_read_only() {
-            self.status_message = Some(StatusMessage::new("read-only"));
+            self.status_message = Some(StatusMessage::new(
+                "read-only — press 'i' to add Include line",
+            ));
             return;
         }
         let Some(host) = self.selected_host().cloned() else {
@@ -272,7 +283,9 @@ impl App {
 
     fn open_tag_form(&mut self) {
         if self.is_read_only() {
-            self.status_message = Some(StatusMessage::new("read-only"));
+            self.status_message = Some(StatusMessage::new(
+                "read-only — press 'i' to add Include line",
+            ));
             return;
         }
         let Some(host) = self.selected_host().cloned() else {
@@ -292,7 +305,9 @@ impl App {
 
     fn open_delete_confirm(&mut self) {
         if self.is_read_only() {
-            self.status_message = Some(StatusMessage::new("read-only"));
+            self.status_message = Some(StatusMessage::new(
+                "read-only — press 'i' to add Include line",
+            ));
             return;
         }
         let Some(host) = self.selected_host().cloned() else {
@@ -311,7 +326,7 @@ impl App {
 
     fn open_help_modal(&mut self) {
         let msg = "j/k nav  / filter  Enter open  s ssh  r reconnect\n\
-                   a add  d delete  t tags  e edit  ? help  q quit"
+                   a add  d delete  t tags  e edit  i include  ? help  q quit"
             .to_string();
         self.mode = AppMode::Modal(ModalKind::Info {
             message: msg,
