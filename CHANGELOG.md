@@ -8,6 +8,41 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.4.1] — 2026-05-20
+
+### Changed
+
+- **Renamed binary, package, and on-disk paths from `sshs` to `sshc`.**
+  The previous name (v0.1.0–v0.4.0) collided with an unrelated CLI also
+  called `sshs`. The Cargo package, binary, UI strings, file paths
+  (`~/.ssh/config.d/sshc.conf`, `~/.config/sshc/state.toml`), and the
+  `Include` backup filename suffix all now use `sshc`. The state.toml
+  schema is unchanged — only the parent directory moved.
+- Replaced two misleading `StorageError::LockHeldByOther` fallbacks in
+  `src/app.rs` flagged in PR review:
+  - `apply_add` / `apply_modify` now `.expect(...)` on
+    `host_from_payload` since the caller already matched the Host
+    variant — the previous `None` branch was unreachable.
+  - `persist_sshc_conf` returns
+    `AppError::Setup(SetupError::HomeDirMissing)` when `dirs::home_dir`
+    is unresolvable, instead of disguising it as lock contention.
+
+### Added
+
+- **Homebrew distribution via [`hang-in/homebrew-tap`](https://github.com/hang-in/homebrew-tap)**.
+  `brew install hang-in/tap/sshc` installs the latest release as a
+  pre-built binary.
+- **GitHub Actions `release.yml`**: tag push (`v*`) triggers cross-
+  compiled binaries for `{x86_64,aarch64}-{apple-darwin,unknown-linux-gnu}`,
+  stripped, packed as `sshc-<target>.tar.gz`, attached to the GitHub
+  release.
+- **GitHub Actions `bump-homebrew.yml`**: `release.published` event
+  triggers a PR on the tap repo updating `Formula/sshc.rb`.
+- `README.ko.md` (Korean translation, content parity with `README.md`).
+- README rewritten in a leaner shape: tagline + brew badge + demo
+  placeholder + Why / Quickstart / Two modes / Keybindings / Install
+  / Configuration / Comparison.
+
 ## [0.4.0] — 2026-05-20
 
 ### Added
