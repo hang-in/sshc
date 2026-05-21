@@ -463,4 +463,31 @@ without `$EDITOR` set, the test resolves to `notepad.exe` and the
 **Why not in v0.8.2**: handoff §6 forbade touching `src/exec/*.rs`.
 Not user-visible either way — it's only a CI/local-test annoyance.
 
+## 12. Closed — verified 2026-05-21
+
+v0.8.3 ships both §11.1 (Windows ACL) and §11.2 (editor test
+EDITOR=vim guard). End-to-end checks on a real Windows host:
+
+- **`sshc -m` → `a` → fill → Enter** writes the host to
+  `~/.ssh/config.d/sshc.conf` and surfaces it in the list.
+- **`ssh -G wintest`** no longer errors with "Bad owner or
+  permissions"; it prints the resolved config like any other
+  alias. End of the regression chain that started at v0.7.x.
+- **`icacls $HOME\.ssh\config.d\sshc.conf`** shows
+  `BUILTIN\Administrators:(F)` + `NT AUTHORITY\SYSTEM:(F)` and
+  no `BUILTIN\Users` / `Authenticated Users` / `Everyone` —
+  exactly the trustee set Windows OpenSSH accepts.
+
+Note on the apparent missing user ACE: in the verifying user's
+Windows session, the file owner resolved to the
+`BUILTIN\Administrators` group (UAC-elevated shell / single-user
+admin profile), so the owner-ACE we add and the Administrators-ACE
+we add share the same SID and `icacls` collapses them into one row.
+In a standard-user profile, the owner-ACE would appear as its own
+row. Functionally identical either way: the user can read/write
+their own sshc.conf and `ssh.exe` accepts the file.
+
+This handoff document stays in the repo as reference for any
+future Windows-specific debug round. The v0.8 cycle is now closed.
+
 ## End of handoff.
