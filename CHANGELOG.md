@@ -8,6 +8,61 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.8.4] — 2026-05-21
+
+Hotfix for a load-bearing `inject_include` bug present since v0.4.0.
+Affects both macOS and Windows. No behavior change for users whose
+`~/.ssh/config` was empty when sshc first ran setup.
+
+### Fixed
+
+- **`Include` directive appended by `sshc -m`'s `i` could end up
+  nested inside the user's last `Host` stanza**, making sshc-managed
+  hosts silently invisible to `ssh <alias>`. OpenSSH terminates a
+  `Host` block only on the next `Host` / `Match` directive or EOF —
+  *blank lines and comments don't end a stanza* — so an `Include`
+  line appended to a config that ends with a `Host` block became a
+  conditional Include scoped to that last alias. `ssh -vv` showed
+  `Reading configuration data .../sshc.conf` (parse time), but
+  `Applying options for <sshc-alias>` never fired for any sshc host.
+
+  Fix: `inject_include` now emits three lines instead of two, with
+  `Match all` between the comment header and the `Include`:
+
+  ```
+  # Added by sshc; do not remove.
+  Match all
+  Include ~/.ssh/config.d/sshc.conf
+  ```
+
+  `Match` is a stanza header in its own right, so the preceding
+  `Host` block is closed; `Match all` matches every connection
+  unconditionally, so the `Include` (which now belongs to *this*
+  block) fires for every alias. Restores the "append-only,
+  unconditional include" semantics the user expects.
+
+  Users on existing v0.7.x / v0.8.0–v0.8.3 installs whose
+  `~/.ssh/config` ends with a `Host` stanza should either re-run
+  `sshc -m` → `i` after deleting the existing Include line, or
+  manually add a `Match all` line directly above the sshc-managed
+  Include block in `~/.ssh/config`. New installs onto an empty
+  `~/.ssh/config` see no change in behavior.
+
+### Internal
+
+- New regression tests:
+  - `test_inject_emits_match_all_terminator_before_include` —
+    asserts `Match all` is the line immediately before `Include`
+    after `inject_include` runs over a config that ends with a
+    `Host` stanza.
+  - `test_inject_idempotent_with_terminator` — confirms calling
+    inject twice still yields exactly one `Include` line and one
+    `Match all` line.
+- `is_include_present` is unchanged; it scans for any `Include`
+  directive line-by-line regardless of position, so the new
+  three-line block is detected as already-present on the second
+  invocation.
+
 ## [0.8.3] — 2026-05-21
 
 Windows usability hotfix on top of v0.8.2. No behavior change on
