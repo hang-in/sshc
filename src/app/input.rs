@@ -84,6 +84,7 @@ impl App {
                 KeyCode::Char('t') => self.open_tag_form(),
                 KeyCode::Char('v') => self.validate_selected(),
                 KeyCode::Char('c') => self.copy_ssh_command_for_selected(),
+                KeyCode::Char('g') => self.reach_check_for_selected(),
                 KeyCode::Char('M') => self.promote_selected(),
                 KeyCode::Char('i') => {
                     // Force-retry the Include injection. Useful when the user

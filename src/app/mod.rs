@@ -285,6 +285,60 @@ impl App {
         self.state.memory.favorites.iter().any(|a| a == alias)
     }
 
+    /// v0.9 G6: pressing `g` on a selected host runs `ssh -G <alias>` to
+    /// learn the effective hostname/port, then attempts a raw TCP
+    /// connect (no SSH handshake). Distinguishes "host is down" from
+    /// "ssh config is wrong" without spawning ssh itself.
+    ///
+    /// Reuses the same `ssh -G` cache that `v`/`c` populate, so
+    /// repeated presses don't re-spawn.
+    pub(super) fn reach_check_for_selected(&mut self) {
+        let Some(alias) = self.selected_host().map(|h| h.alias.clone()) else {
+            return;
+        };
+        let resolved = if let Some(cached) = self.validation_cache.get(&alias) {
+            cached.clone()
+        } else {
+            match crate::exec::ssh_config::validate_alias(&alias) {
+                Ok(out) => {
+                    self.validation_cache.insert(alias.clone(), out.clone());
+                    out
+                }
+                Err(e) => {
+                    self.status_message = Some(StatusMessage::error(format!("ssh -G failed: {e}")));
+                    return;
+                }
+            }
+        };
+        let (Some(hostname), Some(port)) = (
+            resolved
+                .lines()
+                .find_map(|l| l.strip_prefix("hostname ").map(|s| s.trim().to_string())),
+            resolved.lines().find_map(|l| {
+                l.strip_prefix("port ")
+                    .and_then(|s| s.trim().parse::<u16>().ok())
+            }),
+        ) else {
+            self.status_message = Some(StatusMessage::error(format!(
+                "could not parse hostname/port from ssh -G for '{alias}'"
+            )));
+            return;
+        };
+        let result = crate::exec::tcp_reach::check_tcp_reach(
+            &hostname,
+            port,
+            crate::exec::tcp_reach::DEFAULT_BUDGET,
+        );
+        self.status_message = Some(match result {
+            crate::exec::tcp_reach::ReachResult::Reachable { ms } => {
+                StatusMessage::new(format!("✓ TCP reach: {hostname}:{port} ({ms} ms)"))
+            }
+            crate::exec::tcp_reach::ReachResult::Unreachable { error } => {
+                StatusMessage::error(format!("✗ TCP unreachable: {hostname}:{port} — {error}"))
+            }
+        });
+    }
+
     /// v0.9 G4: pressing `c` on a selected host runs `ssh -G <alias>` to
     /// learn the effective hostname/port/user/identityfile, builds an
     /// `ssh user@host -p port -i key` one-liner, and pushes it onto the
