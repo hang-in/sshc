@@ -5,9 +5,7 @@
 //! Prints `PASS` / `WARN` / `FAIL` per check and exits 0 unless any
 //! check is `FAIL`. Never mutates state.
 
-#[cfg(unix)]
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 #[cfg(unix)]
@@ -348,8 +346,27 @@ fn check_latest_version() -> Check {
     }
 
     // ureq 2.10's per-call `.timeout()` covers both connect and read.
+    // v0.9 G7: wire native-tls explicitly so ureq doesn't pull in
+    // rustls + webpki-roots. ureq with `default-features = false +
+    // features = ["native-tls"]` still needs the TlsConnector handed
+    // to AgentBuilder; v0.8 R6 skipped this step and got "no TLS
+    // backend is configured".
     let user_agent = format!("sshc/{current}");
-    let body = match ureq::get(URL)
+    let tls = match native_tls::TlsConnector::new() {
+        Ok(t) => t,
+        Err(_) => {
+            return Check {
+                name: NAME,
+                status: Status::Warn,
+                detail: "could not initialize TLS connector".into(),
+            };
+        }
+    };
+    let agent = ureq::AgentBuilder::new()
+        .tls_connector(std::sync::Arc::new(tls))
+        .build();
+    let body = match agent
+        .get(URL)
         .set("User-Agent", &user_agent)
         .timeout(std::time::Duration::from_secs(5))
         .call()

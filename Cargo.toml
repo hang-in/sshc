@@ -22,14 +22,16 @@ env_logger = "0.11"
 toml = "0.8"
 serde = { version = "1", features = ["derive"] }
 # Sync HTTP client for `sshc --doctor`'s update-availability check.
-# Default features pull in `rustls` + webpki-roots: bundled Mozilla
-# trust store, single static binary, no OpenSSL / SChannel /
-# SecureTransport dependency at install time. We tried
-# `default-features = false, features = ["native-tls"]` first but
-# ureq 2.12 ships without an active TLS backend in that combo,
-# causing `--doctor`'s update check to fail with "no TLS backend
-# is configured".
-ureq = "2.10"
+# v0.9 G7: switched off the default `tls` feature (rustls + webpki-
+# roots) and pair ureq with system-level `native-tls` wired
+# explicitly through AgentBuilder::tls_connector. v0.8 R6's failed
+# attempt at the same combo flipped *only* the feature bit and got
+# "no TLS backend is configured" at runtime — the missing step was
+# the explicit `tls_connector` call below in src/doctor.rs.
+# Saves ~1.5 MB vs rustls + webpki-roots on macOS arm64; SChannel /
+# SecureTransport / OpenSSL are already on every supported host.
+ureq = { version = "2.10", default-features = false, features = ["native-tls"] }
+native-tls = "0.2"
 # Cross-platform clipboard for the `c` key (copy ssh command).
 # Wraps Cocoa on macOS, X11/Wayland on Linux, OpenClipboard on Windows.
 arboard = "3"

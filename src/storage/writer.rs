@@ -211,13 +211,13 @@ fn set_owner_only_perms(path: &Path) -> Result<(), StorageError> {
     //    already an `SID_IDENTIFIER_AUTHORITY` value in windows-sys
     //    0.59, so we copy it into a mutable local for the &mut
     //    parameter rather than wrap it once more.
-    let mut nt_authority: SID_IDENTIFIER_AUTHORITY = SECURITY_NT_AUTHORITY;
+    let nt_authority: SID_IDENTIFIER_AUTHORITY = SECURITY_NT_AUTHORITY;
     let mut system_sid: PSID = ptr::null_mut();
     let mut admins_sid: PSID = ptr::null_mut();
 
     let ok_system = unsafe {
         AllocateAndInitializeSid(
-            &mut nt_authority,
+            &nt_authority,
             1,
             SECURITY_LOCAL_SYSTEM_RID,
             0,
@@ -232,7 +232,7 @@ fn set_owner_only_perms(path: &Path) -> Result<(), StorageError> {
     };
     let ok_admins = unsafe {
         AllocateAndInitializeSid(
-            &mut nt_authority,
+            &nt_authority,
             2,
             SECURITY_BUILTIN_DOMAIN_RID,
             DOMAIN_ALIAS_RID_ADMINS,
