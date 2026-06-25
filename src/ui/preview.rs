@@ -91,6 +91,9 @@ mod tests {
             source_file: PathBuf::from("/tmp/sshc.conf"),
             tags: vec!["prod".into(), "api".into()],
             extra: vec!["ForwardAgent yes".into()],
+            local_forward: None,
+            remote_forward: None,
+            dynamic_forward: None,
         }
     }
 

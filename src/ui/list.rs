@@ -270,6 +270,9 @@ mod tests {
             source_file: PathBuf::from(path),
             tags: tags.into_iter().map(String::from).collect(),
             extra: Vec::new(),
+            local_forward: None,
+            remote_forward: None,
+            dynamic_forward: None,
         }
     }
 

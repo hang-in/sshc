@@ -10,9 +10,13 @@ use ratatui::{
 };
 use std::path::PathBuf;
 
-const FIELD_COUNT: usize = 7;
+const FIELD_COUNT: usize = 10;
 /// Index of the IdentityFile field in `fields` / `labels`.
 const IDENTITY_INDEX: usize = 4;
+/// v0.9 G5: section headers rendered between input rows. Each entry is
+/// `(field_index_before_which_header_appears, label)`. Headers are
+/// dimmed, non-focusable, and don't change Tab routing.
+const SECTION_HEADERS: &[(usize, &str)] = &[(6, "─── Forwarding ───"), (9, "─── Advanced ───")];
 
 pub struct HostForm {
     fields: [String; FIELD_COUNT],
@@ -39,10 +43,10 @@ impl HostForm {
         }
     }
 
-    // The argument-count threshold (7) was tuned for the v0.5 surface;
-    // adding `identity_candidates` to keep filesystem access out of
-    // `ui/forms/*` (R-G8) bumps this to 8. A struct-of-args cleanup is
-    // a natural fit for the v0.8 G2 promote round.
+    // v0.5 surface called for 7 args; v0.8 R0 hoisted identity_candidates
+    // for R-G8 (8); v0.9 G5 adds three Forwarding fields (11). A
+    // struct-of-args cleanup keeps drifting later — for now keep the
+    // explicit signature so individual call sites stay legible.
     #[allow(clippy::too_many_arguments)]
     pub fn from_host(
         alias: &str,
@@ -51,6 +55,9 @@ impl HostForm {
         port: &str,
         identity_file: &str,
         tags_csv: &str,
+        local_forward: &str,
+        remote_forward: &str,
+        dynamic_forward: &str,
         extra: &str,
         identity_candidates: Vec<PathBuf>,
     ) -> Self {
@@ -62,6 +69,9 @@ impl HostForm {
                 port.to_string(),
                 identity_file.to_string(),
                 tags_csv.to_string(),
+                local_forward.to_string(),
+                remote_forward.to_string(),
+                dynamic_forward.to_string(),
                 extra.to_string(),
             ],
             active_index: 0,
@@ -143,7 +153,25 @@ impl HostForm {
             return Err("Maximum 16 distinct tags allowed".to_string());
         }
 
-        let extra = self.fields[6].trim();
+        // v0.9 G5: typed Forwarding fields. Validation is loose — match
+        // OpenSSH's `[bind:]port:host:hostport` (Local/Remote) or
+        // `[bind:]port` (Dynamic) just enough to catch obvious typos.
+        // ssh itself does the deep parse on connect; we never want to
+        // replicate ssh_config(5) (anti-feature 5).
+        let local_forward = self.fields[6].trim();
+        if !local_forward.is_empty() && !looks_like_local_remote_forward(local_forward) {
+            return Err("Invalid LocalForward: expected `[bind:]port host:hostport`".to_string());
+        }
+        let remote_forward = self.fields[7].trim();
+        if !remote_forward.is_empty() && !looks_like_local_remote_forward(remote_forward) {
+            return Err("Invalid RemoteForward: expected `[bind:]port host:hostport`".to_string());
+        }
+        let dynamic_forward = self.fields[8].trim();
+        if !dynamic_forward.is_empty() && !looks_like_dynamic_forward(dynamic_forward) {
+            return Err("Invalid DynamicForward: expected `[bind:]port`".to_string());
+        }
+
+        let extra = self.fields[9].trim();
 
         Ok(FormPayload::Host {
             alias: alias.to_string(),
@@ -152,9 +180,50 @@ impl HostForm {
             port: port_str.to_string(),
             identity_file: id_file.to_string(),
             tags_csv: tags_csv.to_string(),
+            local_forward: local_forward.to_string(),
+            remote_forward: remote_forward.to_string(),
+            dynamic_forward: dynamic_forward.to_string(),
             extra: extra.to_string(),
         })
     }
+}
+
+/// v0.9 G5 helper: accept `[bind:]port host:hostport` shape. Whitespace
+/// or `:` separates the local part from the remote; the remote is
+/// `host:hostport`. Catches obvious typos without trying to recreate
+/// ssh's own parser (anti-feature 5).
+fn looks_like_local_remote_forward(s: &str) -> bool {
+    // Split on first whitespace OR colon to find the remote part.
+    let mut parts = s.splitn(2, |c: char| c.is_whitespace());
+    let local = parts.next().unwrap_or("");
+    let remote = parts.next().unwrap_or("").trim();
+    if local.is_empty() || remote.is_empty() {
+        return false;
+    }
+    // local: digits OR bind:port — bind can include letters/dots
+    let local_port_ok = local
+        .rsplit(':')
+        .next()
+        .map(|p| p.chars().all(|c| c.is_ascii_digit()))
+        .unwrap_or(false);
+    // remote: must contain `:` separating host from port, and the
+    // trailing port must be all digits.
+    let remote_port_ok = remote
+        .rsplit_once(':')
+        .map(|(_, p)| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+        .unwrap_or(false);
+    local_port_ok && remote_port_ok
+}
+
+/// v0.9 G5 helper: accept `port` or `bind:port`.
+fn looks_like_dynamic_forward(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+    s.rsplit(':')
+        .next()
+        .map(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+        .unwrap_or(false)
 }
 
 impl FormState for HostForm {
@@ -170,54 +239,85 @@ impl FormState for HostForm {
             "Port",
             "IdentityFile",
             "Tags",
+            "LocalForward",
+            "RemoteForward",
+            "DynamicForward",
             "Options",
         ];
         // Right-padded so the column of `[` brackets lines up across rows.
-        // "IdentityFile" is the longest label at 12 chars; +2 for ": ".
-        const LABEL_WIDTH: u16 = 14;
+        // "DynamicForward" is now the longest label at 14 chars; +2 for ": ".
+        const LABEL_WIDTH: u16 = 16;
+
+        // Each row is either an input field or a dim section header.
+        // Build the row list so the layout can size itself off the total.
+        enum Row {
+            Field(usize),
+            Header(&'static str),
+        }
+        let mut rows: Vec<Row> = Vec::with_capacity(FIELD_COUNT + SECTION_HEADERS.len());
+        for i in 0..FIELD_COUNT {
+            if let Some((_, header)) = SECTION_HEADERS.iter().find(|(at, _)| *at == i) {
+                rows.push(Row::Header(header));
+            }
+            rows.push(Row::Field(i));
+        }
+        let total_rows = rows.len();
 
         let outer = Layout::vertical([
-            Constraint::Length(FIELD_COUNT as u16),
+            Constraint::Length(total_rows as u16),
             Constraint::Length(1),
             Constraint::Min(1),
         ])
         .split(inner);
-        let field_chunks = Layout::vertical([Constraint::Length(1); FIELD_COUNT]).split(outer[0]);
+        let row_chunks = Layout::vertical(vec![Constraint::Length(1); total_rows]).split(outer[0]);
 
-        for i in 0..FIELD_COUNT {
-            let is_active = self.active_index == i;
+        for (row_idx, row) in rows.iter().enumerate() {
+            match row {
+                Row::Header(text) => {
+                    let header_line = Line::from(Span::styled(
+                        format!(" {text}"),
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::DIM),
+                    ));
+                    f.render_widget(Paragraph::new(header_line), row_chunks[row_idx]);
+                }
+                Row::Field(i) => {
+                    let is_active = self.active_index == *i;
+                    let row_cells =
+                        Layout::horizontal([Constraint::Length(LABEL_WIDTH), Constraint::Min(3)])
+                            .split(row_chunks[row_idx]);
 
-            let row = Layout::horizontal([Constraint::Length(LABEL_WIDTH), Constraint::Min(3)])
-                .split(field_chunks[i]);
+                    let label_style = if is_active {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().add_modifier(Modifier::BOLD)
+                    };
+                    let label_text = format!(
+                        "{:<width$}",
+                        format!("{}:", labels[*i]),
+                        width = LABEL_WIDTH as usize
+                    );
+                    f.render_widget(
+                        Paragraph::new(Line::from(Span::styled(label_text, label_style))),
+                        row_cells[0],
+                    );
 
-            let label_style = if is_active {
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().add_modifier(Modifier::BOLD)
-            };
-            let label_text = format!(
-                "{:<width$}",
-                format!("{}:", labels[i]),
-                width = LABEL_WIDTH as usize
-            );
-            f.render_widget(
-                Paragraph::new(Line::from(Span::styled(label_text, label_style))),
-                row[0],
-            );
-
-            let cursor = if is_active { "█" } else { "" };
-            let value_text = format!("[{}{}]", self.fields[i], cursor);
-            let value_style = if is_active {
-                Style::default().fg(Color::Yellow)
-            } else {
-                Style::default()
-            };
-            f.render_widget(
-                Paragraph::new(Line::from(Span::styled(value_text, value_style))),
-                row[1],
-            );
+                    let cursor = if is_active { "█" } else { "" };
+                    let value_text = format!("[{}{}]", self.fields[*i], cursor);
+                    let value_style = if is_active {
+                        Style::default().fg(Color::Yellow)
+                    } else {
+                        Style::default()
+                    };
+                    f.render_widget(
+                        Paragraph::new(Line::from(Span::styled(value_text, value_style))),
+                        row_cells[1],
+                    );
+                }
+            }
         }
 
         // Hint about the Options field syntax — sits between the fields
@@ -325,7 +425,7 @@ mod tests {
     #[test]
     fn test_tab_wraparound() {
         let mut form = HostForm::new(Vec::new());
-        for expected in &[1usize, 2, 3, 4, 5, 6, 0] {
+        for expected in &[1usize, 2, 3, 4, 5, 6, 7, 8, 9, 0] {
             form.handle_key(ke(KeyCode::Tab));
             assert_eq!(form.active_index, *expected);
         }
@@ -334,7 +434,7 @@ mod tests {
     #[test]
     fn test_backtab_wraparound() {
         let mut form = HostForm::new(Vec::new());
-        for expected in &[6usize, 5, 4, 3, 2, 1, 0] {
+        for expected in &[9usize, 8, 7, 6, 5, 4, 3, 2, 1, 0] {
             form.handle_key(ke(KeyCode::BackTab));
             assert_eq!(form.active_index, *expected);
         }
@@ -374,7 +474,7 @@ mod tests {
         let mut form = HostForm::new(Vec::new());
         form.fields[0] = "dev1".to_string();
         form.fields[1] = "10.0.0.1".to_string();
-        form.active_index = 6;
+        form.active_index = 9;
         match form.handle_key(ke(KeyCode::Enter)) {
             FormOutcome::Submit(FormPayload::Host {
                 alias, hostname, ..
@@ -390,7 +490,7 @@ mod tests {
     fn test_validation_missing_alias() {
         let mut form = HostForm::new(Vec::new());
         form.fields[1] = "host".to_string();
-        form.active_index = 6;
+        form.active_index = 9;
         assert!(matches!(
             form.handle_key(ke(KeyCode::Enter)),
             FormOutcome::Stay
@@ -404,7 +504,7 @@ mod tests {
         form.fields[0] = "dev".to_string();
         form.fields[1] = "h".to_string();
         form.fields[3] = "70000".to_string();
-        form.active_index = 6;
+        form.active_index = 9;
         assert!(matches!(
             form.handle_key(ke(KeyCode::Enter)),
             FormOutcome::Stay
@@ -418,7 +518,7 @@ mod tests {
         form.fields[0] = "dev".to_string();
         form.fields[1] = "h".to_string();
         form.fields[4] = "/etc/key;rm".to_string();
-        form.active_index = 6;
+        form.active_index = 9;
         assert!(matches!(
             form.handle_key(ke(KeyCode::Enter)),
             FormOutcome::Stay
@@ -435,6 +535,9 @@ mod tests {
             "22",
             "/k",
             "x,y",
+            "8080 localhost:80",
+            "9090 127.0.0.1:9090",
+            "1080",
             "ProxyJump bastion",
             Vec::new(),
         );
@@ -444,6 +547,35 @@ mod tests {
         assert_eq!(form.fields[3], "22");
         assert_eq!(form.fields[4], "/k");
         assert_eq!(form.fields[5], "x,y");
-        assert_eq!(form.fields[6], "ProxyJump bastion");
+        assert_eq!(form.fields[6], "8080 localhost:80");
+        assert_eq!(form.fields[7], "9090 127.0.0.1:9090");
+        assert_eq!(form.fields[8], "1080");
+        assert_eq!(form.fields[9], "ProxyJump bastion");
+    }
+
+    // v0.9 G5 validator helpers
+    #[test]
+    fn test_looks_like_local_remote_forward_accepts_canonical() {
+        assert!(looks_like_local_remote_forward("8080 localhost:80"));
+        assert!(looks_like_local_remote_forward(
+            "127.0.0.1:8080 host.example.com:80"
+        ));
+    }
+
+    #[test]
+    fn test_looks_like_local_remote_forward_rejects_obvious_typos() {
+        assert!(!looks_like_local_remote_forward(""));
+        assert!(!looks_like_local_remote_forward("8080"));
+        assert!(!looks_like_local_remote_forward("abc localhost:80"));
+        assert!(!looks_like_local_remote_forward("8080 localhost"));
+    }
+
+    #[test]
+    fn test_looks_like_dynamic_forward_variants() {
+        assert!(looks_like_dynamic_forward("1080"));
+        assert!(looks_like_dynamic_forward("127.0.0.1:1080"));
+        assert!(!looks_like_dynamic_forward(""));
+        assert!(!looks_like_dynamic_forward("abc"));
+        assert!(!looks_like_dynamic_forward("1080:"));
     }
 }

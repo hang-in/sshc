@@ -38,6 +38,9 @@ fn fake_host(
         source_file: PathBuf::from(source),
         tags: tags.iter().map(|s| s.to_string()).collect(),
         extra: Vec::new(),
+        local_forward: None,
+        remote_forward: None,
+        dynamic_forward: None,
     }
 }
 

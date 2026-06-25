@@ -21,8 +21,17 @@ pub struct Host {
     /// is a single line in `Key Value` form (no leading indent). The
     /// parser preserves them verbatim; the serializer emits them with
     /// the standard 4-space indent after the typed fields. Use for
-    /// `ProxyJump`, `ForwardAgent`, `LocalForward`, etc.
+    /// `ProxyJump`, `ForwardAgent`, and any directives not yet promoted
+    /// to typed fields.
     pub extra: Vec<String>,
+    /// v0.9 G5: typed Forwarding directives. Each is a single value
+    /// (`port[:bind]:host:hostport` for Local/Remote, `port[:bind]`
+    /// for Dynamic). When a host uses multiple of the same kind, only
+    /// the last value parsed is kept here and round-tripped — extra
+    /// duplicates fall into `extra` so they're preserved verbatim.
+    pub local_forward: Option<String>,
+    pub remote_forward: Option<String>,
+    pub dynamic_forward: Option<String>,
 }
 
 impl fmt::Display for Host {
@@ -94,6 +103,9 @@ mod tests {
             source_file: PathBuf::from("/test/config"),
             tags: Vec::new(),
             extra: Vec::new(),
+            local_forward: None,
+            remote_forward: None,
+            dynamic_forward: None,
         }
     }
 

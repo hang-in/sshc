@@ -32,6 +32,10 @@ pub trait FormState: Send {
 }
 
 /// Result of handling a key inside a form.
+///
+/// `Submit` carries the bulky `FormPayload` (see below); the same allow
+/// rationale applies — outcomes are short-lived stack values.
+#[allow(clippy::large_enum_variant)]
 pub enum FormOutcome {
     Stay,
     Cancel,
@@ -39,6 +43,12 @@ pub enum FormOutcome {
 }
 
 /// Opaque form-result payload. Concrete form types put their data here.
+///
+/// `Host` is intentionally larger than its peers (10 typed String fields
+/// once v0.9 G5 forwarding lands). It's constructed in exactly one place
+/// per submission and lives on the stack only across that call — the
+/// usual `Box` indirection rationale doesn't apply.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FormPayload {
     Host {
@@ -52,6 +62,10 @@ pub enum FormPayload {
         /// `ProxyJump bastion`). Multi-line edit not implemented in v0.4;
         /// the form accepts semicolon-separated entries and splits on `;`.
         extra: String,
+        /// v0.9 G5: typed Forwarding fields. Empty string ↔ unset.
+        local_forward: String,
+        remote_forward: String,
+        dynamic_forward: String,
     },
     Tags {
         tags_csv: String,

@@ -17,6 +17,9 @@ fn host(alias: &str, hostname: &str) -> Host {
         source_file: PathBuf::from("/tmp/fixture-config"),
         tags: Vec::new(),
         extra: Vec::new(),
+        local_forward: None,
+        remote_forward: None,
+        dynamic_forward: None,
     }
 }
 

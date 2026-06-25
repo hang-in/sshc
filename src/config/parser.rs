@@ -56,6 +56,9 @@ struct BlockState {
     line_start: usize,
     tags: Vec<String>,
     extra: Vec<String>,
+    local_forward: Option<String>,
+    remote_forward: Option<String>,
+    dynamic_forward: Option<String>,
 }
 
 impl BlockState {
@@ -69,6 +72,9 @@ impl BlockState {
             line_start: 0,
             tags: Vec::new(),
             extra: Vec::new(),
+            local_forward: None,
+            remote_forward: None,
+            dynamic_forward: None,
         }
     }
 
@@ -81,6 +87,9 @@ impl BlockState {
         self.line_start = line_start;
         self.tags = Vec::new();
         self.extra = Vec::new();
+        self.local_forward = None;
+        self.remote_forward = None;
+        self.dynamic_forward = None;
     }
 
     fn is_active(&self) -> bool {
@@ -102,6 +111,9 @@ fn flush_block(hosts: &mut Vec<Host>, block: &BlockState, source_file: &Path) {
                 source_file: source_file.to_path_buf(),
                 tags: block.tags.clone(),
                 extra: block.extra.clone(),
+                local_forward: block.local_forward.clone(),
+                remote_forward: block.remote_forward.clone(),
+                dynamic_forward: block.dynamic_forward.clone(),
             });
         }
     }
@@ -191,6 +203,25 @@ fn parse_config_content(
             }
             "identityfile" if in_host_block => {
                 block.identity_file = Some(resolve_path(&value, base_dir));
+            }
+            // v0.9 G5: typed Forwarding fields. Last value wins so a
+            // round-trip rewrite keeps the most recent directive; any
+            // earlier occurrence falls through to `extra` below to be
+            // preserved as a free-form line.
+            "localforward" if in_host_block => {
+                if let Some(prev) = block.local_forward.replace(value.to_string()) {
+                    block.extra.push(format!("LocalForward {prev}"));
+                }
+            }
+            "remoteforward" if in_host_block => {
+                if let Some(prev) = block.remote_forward.replace(value.to_string()) {
+                    block.extra.push(format!("RemoteForward {prev}"));
+                }
+            }
+            "dynamicforward" if in_host_block => {
+                if let Some(prev) = block.dynamic_forward.replace(value.to_string()) {
+                    block.extra.push(format!("DynamicForward {prev}"));
+                }
             }
             "include" if in_host_block => {
                 let included = resolve_include(&value, base_dir, visited, depth);

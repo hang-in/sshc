@@ -14,6 +14,9 @@ fn make_host(alias: &str) -> Host {
         source_file: PathBuf::from("/test/config"),
         tags: Vec::new(),
         extra: Vec::new(),
+        local_forward: None,
+        remote_forward: None,
+        dynamic_forward: None,
     }
 }
 
@@ -542,6 +545,9 @@ fn test_apply_form_add_host_writes_through_locked_writer() {
         identity_file: String::new(),
         tags_csv: String::new(),
         extra: String::new(),
+        local_forward: String::new(),
+        remote_forward: String::new(),
+        dynamic_forward: String::new(),
     };
     app.apply_form(FormContext::AddHost, payload);
 

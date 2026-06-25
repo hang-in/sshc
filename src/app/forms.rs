@@ -87,6 +87,9 @@ impl App {
             .unwrap_or_default();
         let tags_csv = host.tags.join(", ");
         let extra_joined = host.extra.join("; ");
+        let local_forward = host.local_forward.clone().unwrap_or_default();
+        let remote_forward = host.remote_forward.clone().unwrap_or_default();
+        let dynamic_forward = host.dynamic_forward.clone().unwrap_or_default();
         let form = crate::ui::forms::HostForm::from_host(
             &host.alias,
             host.hostname.as_deref().unwrap_or(""),
@@ -94,6 +97,9 @@ impl App {
             &port_str,
             &identity,
             &tags_csv,
+            &local_forward,
+            &remote_forward,
+            &dynamic_forward,
             &extra_joined,
             discover_identity_files(),
         );
@@ -171,6 +177,9 @@ impl App {
             .unwrap_or_default();
         let tags_csv = host.tags.join(", ");
         let extra_joined = host.extra.join("; ");
+        let local_forward = host.local_forward.clone().unwrap_or_default();
+        let remote_forward = host.remote_forward.clone().unwrap_or_default();
+        let dynamic_forward = host.dynamic_forward.clone().unwrap_or_default();
         let form = crate::ui::forms::HostForm::from_host(
             &host.alias,
             host.hostname.as_deref().unwrap_or(""),
@@ -178,6 +187,9 @@ impl App {
             &port_str,
             &identity,
             &tags_csv,
+            &local_forward,
+            &remote_forward,
+            &dynamic_forward,
             &extra_joined,
             discover_identity_files(),
         );
@@ -250,10 +262,23 @@ impl App {
                     identity_file,
                     tags_csv,
                     extra,
+                    local_forward,
+                    remote_forward,
+                    dynamic_forward,
                 },
             ) => {
-                let host =
-                    self.build_host(alias, hostname, user, port, identity_file, tags_csv, extra);
+                let host = self.build_host(
+                    alias,
+                    hostname,
+                    user,
+                    port,
+                    identity_file,
+                    tags_csv,
+                    extra,
+                    local_forward,
+                    remote_forward,
+                    dynamic_forward,
+                );
                 self.apply_add(host)
             }
             (
@@ -266,10 +291,23 @@ impl App {
                     identity_file,
                     tags_csv,
                     extra,
+                    local_forward,
+                    remote_forward,
+                    dynamic_forward,
                 },
             ) => {
-                let new_host =
-                    self.build_host(alias, hostname, user, port, identity_file, tags_csv, extra);
+                let new_host = self.build_host(
+                    alias,
+                    hostname,
+                    user,
+                    port,
+                    identity_file,
+                    tags_csv,
+                    extra,
+                    local_forward,
+                    remote_forward,
+                    dynamic_forward,
+                );
                 self.apply_modify(&target_alias, new_host)
             }
             (FormContext::EditTags(alias), FormPayload::Tags { tags_csv }) => {
@@ -285,10 +323,23 @@ impl App {
                     identity_file,
                     tags_csv,
                     extra,
+                    local_forward,
+                    remote_forward,
+                    dynamic_forward,
                 },
             ) => {
-                let host =
-                    self.build_host(alias, hostname, user, port, identity_file, tags_csv, extra);
+                let host = self.build_host(
+                    alias,
+                    hostname,
+                    user,
+                    port,
+                    identity_file,
+                    tags_csv,
+                    extra,
+                    local_forward,
+                    remote_forward,
+                    dynamic_forward,
+                );
                 self.apply_promote(&original_alias, host)
             }
             _ => Ok(()),
@@ -316,6 +367,9 @@ impl App {
         identity_file: String,
         tags_csv: String,
         extra: String,
+        local_forward: String,
+        remote_forward: String,
+        dynamic_forward: String,
     ) -> Host {
         let port_parsed: Option<u16> = if port.is_empty() {
             None
@@ -334,6 +388,7 @@ impl App {
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
             .collect();
+        let opt_field = |s: String| if s.is_empty() { None } else { Some(s) };
         Host {
             alias,
             hostname: Some(hostname),
@@ -344,6 +399,9 @@ impl App {
             source_file: self.sshc_conf_path_or_blank(),
             tags: normalized_tags(&tags_csv),
             extra: extra_lines,
+            local_forward: opt_field(local_forward),
+            remote_forward: opt_field(remote_forward),
+            dynamic_forward: opt_field(dynamic_forward),
         }
     }
 
