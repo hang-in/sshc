@@ -285,6 +285,40 @@ impl App {
         self.state.memory.favorites.iter().any(|a| a == alias)
     }
 
+    /// v0.9 G4: pressing `c` on a selected host runs `ssh -G <alias>` to
+    /// learn the effective hostname/port/user/identityfile, builds an
+    /// `ssh user@host -p port -i key` one-liner, and pushes it onto the
+    /// system clipboard. Useful when sharing a connection string with
+    /// someone who doesn't have the user's `~/.ssh/config`.
+    ///
+    /// Clipboard failures surface as sticky Error status messages
+    /// (G3) so a Wayland / SSH-without-DISPLAY environment doesn't
+    /// silently swallow the copy.
+    pub(super) fn copy_ssh_command_for_selected(&mut self) {
+        let Some(alias) = self.selected_host().map(|h| h.alias.clone()) else {
+            return;
+        };
+        let cmd = match crate::exec::ssh_config::ssh_command_for_alias(&alias) {
+            Ok(c) => c,
+            Err(e) => {
+                self.status_message = Some(StatusMessage::error(format!(
+                    "could not resolve '{alias}' for copy: {e}"
+                )));
+                return;
+            }
+        };
+        match arboard::Clipboard::new().and_then(|mut c| c.set_text(cmd.clone())) {
+            Ok(()) => {
+                self.status_message = Some(StatusMessage::new(format!("copied: {cmd}")));
+            }
+            Err(e) => {
+                self.status_message = Some(StatusMessage::error(format!(
+                    "clipboard unavailable ({e}); copy '{cmd}' manually"
+                )));
+            }
+        }
+    }
+
     /// Run `ssh -G <selected_alias>` (cached per session) and open the
     /// resolved config in an Info modal. No network I/O — `ssh -G` only
     /// parses local config. Errors land in the status bar; nothing

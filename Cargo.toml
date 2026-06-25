@@ -30,6 +30,9 @@ serde = { version = "1", features = ["derive"] }
 # causing `--doctor`'s update check to fail with "no TLS backend
 # is configured".
 ureq = "2.10"
+# Cross-platform clipboard for the `c` key (copy ssh command).
+# Wraps Cocoa on macOS, X11/Wayland on Linux, OpenClipboard on Windows.
+arboard = "3"
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["fs"] }

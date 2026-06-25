@@ -32,6 +32,59 @@ impl std::fmt::Display for ValidationError {
 
 impl std::error::Error for ValidationError {}
 
+/// v0.9 G4: run `ssh -G <alias>` and reduce the output to a one-line
+/// `ssh user@host -p port -i key` invocation suitable for the clipboard
+/// or a shared note. Drops options OpenSSH would default-fill anyway
+/// (port 22, empty user, empty identityfile) so the resulting string
+/// reads like a hand-written command.
+pub fn ssh_command_for_alias(alias: &str) -> Result<String, ValidationError> {
+    let out = validate_alias(alias)?;
+    Ok(build_ssh_command(alias, &out))
+}
+
+/// Pure helper for `ssh_command_for_alias`. Takes a raw `ssh -G` dump
+/// and produces the one-line command — exposed so unit tests can drive
+/// it with fixture strings without spawning ssh.
+pub fn build_ssh_command(alias: &str, ssh_g_output: &str) -> String {
+    let mut user: Option<&str> = None;
+    let mut hostname: Option<&str> = None;
+    let mut port: Option<&str> = None;
+    // `ssh -G` emits one `identityfile` line per default key plus any
+    // explicitly configured ones, with the configured one first. Take
+    // the first non-default-looking entry: if the user configured
+    // /Users/.../id_ed25519 it shows up before the default ~/.ssh/id_rsa
+    // fallbacks, so the first occurrence is what we want.
+    let mut identity: Option<&str> = None;
+    for line in ssh_g_output.lines() {
+        let mut parts = line.splitn(2, ' ');
+        let key = parts.next().unwrap_or("");
+        let val = parts.next().unwrap_or("").trim();
+        match key {
+            "user" => user = Some(val),
+            "hostname" => hostname = Some(val),
+            "port" => port = Some(val),
+            "identityfile" if identity.is_none() => identity = Some(val),
+            _ => {}
+        }
+    }
+    let host = hostname.filter(|s| !s.is_empty()).unwrap_or(alias);
+    let mut cmd = String::from("ssh ");
+    if let Some(u) = user.filter(|s| !s.is_empty()) {
+        cmd.push_str(u);
+        cmd.push('@');
+    }
+    cmd.push_str(host);
+    if let Some(p) = port.filter(|s| !s.is_empty() && *s != "22") {
+        cmd.push_str(" -p ");
+        cmd.push_str(p);
+    }
+    if let Some(i) = identity.filter(|s| !s.is_empty()) {
+        cmd.push_str(" -i ");
+        cmd.push_str(i);
+    }
+    cmd
+}
+
 /// Run `ssh -G <alias>` and return the captured stdout on success. No
 /// network I/O — `-G` parses local config only. Typical runtime <50 ms
 /// for a 200-host config, so this is called synchronously from the UI
@@ -98,5 +151,71 @@ mod tests {
             .output()
             .map(|o| o.status.success() || !o.stderr.is_empty())
             .unwrap_or(false)
+    }
+
+    // ----- v0.9 G4: build_ssh_command tests -----
+
+    fn full_dump() -> String {
+        // Trimmed snapshot of a real `ssh -G` output. Only the four
+        // fields we extract matter; everything else is noise that
+        // build_ssh_command must skip.
+        "user d9ng
+hostname yongseek.iptime.org
+port 2232
+identityfile /Users/d9ng/.ssh/id_ed25519
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+loglevel INFO
+"
+        .to_string()
+    }
+
+    #[test]
+    fn build_full_command_with_all_fields() {
+        let cmd = build_ssh_command("boxie2", &full_dump());
+        assert_eq!(
+            cmd,
+            "ssh d9ng@yongseek.iptime.org -p 2232 -i /Users/d9ng/.ssh/id_ed25519"
+        );
+    }
+
+    #[test]
+    fn port_22_is_omitted() {
+        let dump = "user d9ng\nhostname example.com\nport 22\n";
+        assert_eq!(build_ssh_command("ex", dump), "ssh d9ng@example.com");
+    }
+
+    #[test]
+    fn empty_user_is_omitted() {
+        let dump = "user \nhostname example.com\nport 2222\n";
+        assert_eq!(build_ssh_command("ex", dump), "ssh example.com -p 2222");
+    }
+
+    #[test]
+    fn missing_hostname_falls_back_to_alias() {
+        let dump = "user d9ng\nport 22\n";
+        assert_eq!(build_ssh_command("ex-alias", dump), "ssh d9ng@ex-alias");
+    }
+
+    #[test]
+    fn empty_identity_is_omitted() {
+        let dump = "user d9ng\nhostname example.com\nport 22\nidentityfile \n";
+        assert_eq!(build_ssh_command("ex", dump), "ssh d9ng@example.com");
+    }
+
+    #[test]
+    fn first_identityfile_wins_over_defaults() {
+        // OpenSSH emits the configured key first, then the rolling
+        // defaults. build_ssh_command must pick the first one.
+        let dump = "user d9ng
+hostname example.com
+port 22
+identityfile ~/.ssh/id_picked
+identityfile ~/.ssh/id_rsa
+";
+        assert_eq!(
+            build_ssh_command("ex", dump),
+            "ssh d9ng@example.com -i ~/.ssh/id_picked"
+        );
     }
 }
