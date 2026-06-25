@@ -465,6 +465,117 @@ fn crlf_warning_for(content: &str) -> Option<Check> {
     }
 }
 
+/// v0.9 G2: detect a sshc-managed `Include` line that ended up nested
+/// inside a preceding `Host <pattern>` block. OpenSSH closes `Host` /
+/// `Match` blocks only on the next such directive (or EOF) — blank
+/// lines and comments do *not*. The Include then becomes conditional
+/// scoped to that last alias, and every sshc-managed host looks
+/// invisible to `ssh <alias>`. v0.8.4 fixed this for new injects by
+/// emitting a `Match all` terminator; pre-v0.8.4 configs still need
+/// surfacing.
+fn check_include_scope() -> Option<Check> {
+    let path = home()?.join(".ssh").join("config");
+    let content = std::fs::read_to_string(&path).ok()?;
+    let sshc_path = crate::storage::sshc_conf_path()?;
+    nested_include_warning_for(&content, &sshc_path)
+}
+
+/// Pure detection helper — exposed for unit tests, takes content +
+/// sshc.conf path verbatim so it can run without disk I/O on fixtures.
+fn nested_include_warning_for(content: &str, sshc_path: &Path) -> Option<Check> {
+    let include_lineno = find_sshc_include_line(content, sshc_path)?;
+    let (host_lineno, header) = preceding_host_or_match(content, include_lineno)?;
+    // `Match …` directives close any preceding Host block, and `Match
+    // all` (or `Match host *`) applies unconditionally. `Host *` is a
+    // wildcard that matches every alias, so the Include effectively
+    // fires for every connection.
+    let trimmed_header = header.trim();
+    if trimmed_header.starts_with("Match") {
+        return None;
+    }
+    // Treat `Host *` (with optional trailing whitespace / comments) as
+    // unconditional. Anything else with a more specific pattern is
+    // nested.
+    let host_patterns: Vec<&str> = trimmed_header
+        .strip_prefix("Host")
+        .map(|s| s.split_whitespace().collect())
+        .unwrap_or_default();
+    if host_patterns == ["*"] {
+        return None;
+    }
+    Some(Check {
+        name: "Include scope",
+        status: Status::Warn,
+        detail: format!(
+            "nested inside '{}' (line {}) — sshc-managed hosts only fire when that alias \
+             matches. Add `Match all` directly above the Include line, or delete the \
+             sshc-injected block and re-run `sshc -m` -> `i` on v0.8.4+ to re-inject \
+             with the terminator.",
+            trimmed_header,
+            host_lineno + 1
+        ),
+    })
+}
+
+/// Returns the 0-based line number of the sshc-managed Include
+/// directive, or None when no Include line targets `sshc_path`.
+fn find_sshc_include_line(content: &str, sshc_path: &Path) -> Option<usize> {
+    let target = sshc_path
+        .canonicalize()
+        .unwrap_or_else(|_| sshc_path.to_path_buf());
+    for (lineno, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+        let rest = match trimmed.strip_prefix("Include") {
+            Some(r) if r.starts_with(char::is_whitespace) => r,
+            _ => continue,
+        };
+        let path_token = rest.split_whitespace().next().unwrap_or("");
+        if path_token.is_empty() {
+            continue;
+        }
+        let resolved = expand_user_simple(path_token);
+        let canonical = resolved.canonicalize().unwrap_or(resolved);
+        if canonical == target {
+            return Some(lineno);
+        }
+    }
+    None
+}
+
+/// Walks backwards from `include_lineno` to find the most recent
+/// `Host` or `Match` directive. Returns (line number, full trimmed
+/// line). None when there's no enclosing stanza (Include lives at
+/// top level — also unconditional).
+fn preceding_host_or_match(content: &str, include_lineno: usize) -> Option<(usize, String)> {
+    let lines: Vec<&str> = content.lines().collect();
+    for lineno in (0..include_lineno).rev() {
+        let trimmed = lines[lineno].trim();
+        if trimmed.starts_with("Host ")
+            || trimmed == "Host"
+            || trimmed.starts_with("Match ")
+            || trimmed == "Match"
+        {
+            return Some((lineno, trimmed.to_string()));
+        }
+    }
+    None
+}
+
+/// Local `~/` expansion mirror of `include_injector::expand_user`,
+/// duplicated here to keep `doctor` independent of write-side code.
+fn expand_user_simple(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest);
+        }
+    } else if path == "~" {
+        if let Some(home) = dirs::home_dir() {
+            return home;
+        }
+    }
+    PathBuf::from(path)
+}
+
 pub fn run() -> ExitCode {
     let mut checks: Vec<Check> = vec![
         check_ssh_config(),
@@ -473,6 +584,9 @@ pub fn run() -> ExitCode {
         check_include_line(),
     ];
     if let Some(c) = check_main_config_line_endings() {
+        checks.push(c);
+    }
+    if let Some(c) = check_include_scope() {
         checks.push(c);
     }
     checks.extend([
@@ -544,6 +658,90 @@ mod line_endings_tests {
         // any CR-bearing line — surface it.
         let content = "Host foo\r\n    HostName foo.example.com\n";
         assert!(crlf_warning_for(content).is_some());
+    }
+}
+
+#[cfg(test)]
+mod include_scope_tests {
+    use super::{nested_include_warning_for, Status};
+    use std::path::PathBuf;
+
+    fn fake_sshc_path() -> PathBuf {
+        // Use a string that the line-scanner can match literally —
+        // canonicalize() will fail in the temp test context, so both
+        // sides fall back to the as-given PathBuf, which compares
+        // equal.
+        PathBuf::from("/tmp/sshc-doctor-fixture/sshc.conf")
+    }
+
+    #[test]
+    fn nested_under_host_pattern_warns() {
+        // Common v0.4–v0.8.3 case: main config ends with a Host
+        // stanza, sshc appended a bare Include — the Include is now
+        // scoped to that last alias only.
+        let content = "\
+Host foo
+    HostName foo.example.com
+    Port 22
+
+# Added by sshc; do not remove.
+Include /tmp/sshc-doctor-fixture/sshc.conf
+";
+        let check = nested_include_warning_for(content, &fake_sshc_path())
+            .expect("expected a Warn — Include is nested inside Host foo");
+        assert!(matches!(check.status, Status::Warn));
+        assert!(
+            check.detail.contains("Host foo"),
+            "detail must name the offending Host pattern, got {:?}",
+            check.detail
+        );
+        assert!(check.detail.contains("Match all"));
+    }
+
+    #[test]
+    fn match_all_terminator_clears_the_warning() {
+        // v0.8.4+ inject format.
+        let content = "\
+Host foo
+    HostName foo.example.com
+
+# Added by sshc; do not remove.
+Match all
+Include /tmp/sshc-doctor-fixture/sshc.conf
+";
+        assert!(nested_include_warning_for(content, &fake_sshc_path()).is_none());
+    }
+
+    #[test]
+    fn host_star_above_include_is_unconditional() {
+        let content = "\
+Host foo
+    HostName foo.example.com
+
+Host *
+Include /tmp/sshc-doctor-fixture/sshc.conf
+";
+        assert!(nested_include_warning_for(content, &fake_sshc_path()).is_none());
+    }
+
+    #[test]
+    fn no_sshc_include_returns_none() {
+        let content = "Host foo\n    HostName foo.example.com\n";
+        assert!(nested_include_warning_for(content, &fake_sshc_path()).is_none());
+    }
+
+    #[test]
+    fn top_level_include_no_preceding_stanza_is_ok() {
+        // Include at file start, before any Host stanza, is
+        // unconditional by construction.
+        let content = "\
+# Added by sshc; do not remove.
+Include /tmp/sshc-doctor-fixture/sshc.conf
+
+Host foo
+    HostName foo.example.com
+";
+        assert!(nested_include_warning_for(content, &fake_sshc_path()).is_none());
     }
 }
 
