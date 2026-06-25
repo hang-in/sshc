@@ -140,7 +140,7 @@ pub fn manage() -> Result<ExitCode, AppError> {
             Some(AppAction::SaveState) => {
                 if let Err(e) = state::save(&app.state) {
                     app.status_message =
-                        Some(StatusMessage::new(format!("save state failed: {e}")));
+                        Some(StatusMessage::error(format!("save state failed: {e}")));
                 }
                 probe_pool.refresh(&app.hosts);
             }

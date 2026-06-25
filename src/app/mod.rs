@@ -239,6 +239,19 @@ impl App {
         self.hosts.len()
     }
 
+    /// v0.9 G3: drop a sticky-Error status the moment the user takes
+    /// any next keystroke. Called from the top of the keystroke
+    /// dispatcher (`app::input::handle_key`). Info messages keep
+    /// their own time-based expiry; Error messages exist only until
+    /// the user acknowledges them by typing something.
+    pub fn clear_sticky_error_status(&mut self) {
+        if let Some(msg) = &self.status_message {
+            if msg.kind() == crate::ui::status_bar::StatusKind::Error {
+                self.status_message = None;
+            }
+        }
+    }
+
     /// True when sshc cannot persist changes to sshc.conf (user declined the
     /// Include injection during first-run setup).
     pub fn is_read_only(&self) -> bool {
@@ -290,7 +303,7 @@ impl App {
                     out
                 }
                 Err(e) => {
-                    self.status_message = Some(StatusMessage::new(format!("ssh -G failed: {e}")));
+                    self.status_message = Some(StatusMessage::error(format!("ssh -G failed: {e}")));
                     return;
                 }
             }

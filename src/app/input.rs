@@ -12,6 +12,12 @@ use crate::ui::status_bar::StatusMessage;
 
 impl App {
     pub fn handle_key(&mut self, key: KeyEvent) {
+        // v0.9 G3: Error-kind status messages are sticky across
+        // redraws; the user's next keystroke is what dismisses them.
+        // Doing this *before* dispatch means a fresh status set by
+        // the current keystroke (Info or Error) survives — only
+        // the *previous* sticky Error is cleared.
+        self.clear_sticky_error_status();
         match &self.mode {
             AppMode::List => self.handle_list_key(key),
             AppMode::Modal(_) => self.handle_modal_key(key),

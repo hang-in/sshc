@@ -59,7 +59,7 @@ pub fn handle_inject_include(app: &mut App) {
         crate::storage::main_ssh_config_path(),
         crate::storage::sshc_conf_path(),
     ) else {
-        app.status_message = Some(StatusMessage::new("could not resolve ssh config paths"));
+        app.status_message = Some(StatusMessage::error("could not resolve ssh config paths"));
         return;
     };
     match crate::storage::inject_include(&main_cfg, &sshc_conf) {
@@ -75,7 +75,9 @@ pub fn handle_inject_include(app: &mut App) {
             app.status_message = Some(StatusMessage::new(msg));
         }
         Err(e) => {
-            app.status_message = Some(StatusMessage::new(format!("include injection failed: {e}")));
+            app.status_message = Some(StatusMessage::error(format!(
+                "include injection failed: {e}"
+            )));
         }
     }
 }
@@ -98,7 +100,7 @@ pub fn handle_connect(
     terminal.clear()?;
     match result {
         Ok(r) => app.on_ssh_finished(alias, r),
-        Err(e) => app.status_message = Some(StatusMessage::new(format!("{}", e))),
+        Err(e) => app.status_message = Some(StatusMessage::error(format!("{}", e))),
     }
     Ok(())
 }

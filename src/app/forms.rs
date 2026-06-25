@@ -298,7 +298,7 @@ impl App {
                 self.pending_action = Some(AppAction::SaveState);
             }
             Err(e) => {
-                self.status_message = Some(StatusMessage::new(format!("form apply failed: {e}")));
+                self.status_message = Some(StatusMessage::error(format!("form apply failed: {e}")));
             }
         }
     }
@@ -432,7 +432,7 @@ impl App {
                 self.probe_states.remove(pos);
             }
             if let Err(e) = self.persist_sshc_conf() {
-                self.status_message = Some(StatusMessage::new(format!("delete failed: {e}")));
+                self.status_message = Some(StatusMessage::error(format!("delete failed: {e}")));
             } else {
                 self.apply_filter();
                 self.validation_cache.clear();
