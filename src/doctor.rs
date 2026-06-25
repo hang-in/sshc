@@ -432,16 +432,54 @@ fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
 
 /// Run all checks, print the report, and return an `ExitCode` reflecting
 /// the worst status seen (`FAIL` → `FAILURE`, anything else → `SUCCESS`).
+/// v0.9 G1: detect CRLF line endings in `~/.ssh/config`. OpenSSH treats
+/// `\r` as part of an alias token, so a Windows-origin config copied
+/// onto macOS / Linux silently breaks every `Host …` match. Read-only
+/// surface; check is omitted from the doctor output entirely when the
+/// file is clean (`None`) so the green path stays uncluttered.
+fn check_main_config_line_endings() -> Option<Check> {
+    let path = home()?.join(".ssh").join("config");
+    let content = std::fs::read_to_string(&path).ok()?;
+    crlf_warning_for(&content)
+}
+
+/// Pure helper for `check_main_config_line_endings` so the CRLF
+/// detection logic is unit-testable without touching disk.
+fn crlf_warning_for(content: &str) -> Option<Check> {
+    // Scan the first 100 logical lines. CRLF tends to be uniform across
+    // a file; if it's there at all, one of the first 100 lines will
+    // expose it. Bounding the scan keeps `--doctor` cheap on the
+    // pathological case of a multi-megabyte config.
+    let has_crlf = content.split('\n').take(100).any(|l| l.ends_with('\r'));
+    if has_crlf {
+        Some(Check {
+            name: "line endings",
+            status: Status::Warn,
+            detail: "CRLF detected in ~/.ssh/config — OpenSSH treats '\\r' as part of alias \
+                     tokens; convert with `tr -d '\\r' < ~/.ssh/config > ~/.ssh/config.tmp \
+                     && mv ~/.ssh/config.tmp ~/.ssh/config && chmod 600 ~/.ssh/config`"
+                .into(),
+        })
+    } else {
+        None
+    }
+}
+
 pub fn run() -> ExitCode {
-    let checks = [
+    let mut checks: Vec<Check> = vec![
         check_ssh_config(),
         check_ssh_dir_perms(),
         check_sshc_conf(),
         check_include_line(),
+    ];
+    if let Some(c) = check_main_config_line_endings() {
+        checks.push(c);
+    }
+    checks.extend([
         check_ssh_binary(),
         check_ssh_auth_sock(),
         check_latest_version(),
-    ];
+    ]);
 
     let max_name = checks.iter().map(|c| c.name.len()).max().unwrap_or(0);
 
@@ -473,6 +511,39 @@ pub fn run() -> ExitCode {
     } else {
         println!("Result: OK — all checks passed.");
         ExitCode::SUCCESS
+    }
+}
+
+#[cfg(test)]
+mod line_endings_tests {
+    use super::{crlf_warning_for, Status};
+
+    #[test]
+    fn lf_only_config_returns_none() {
+        let content = "Host foo\n    HostName foo.example.com\n    Port 22\n";
+        assert!(crlf_warning_for(content).is_none());
+    }
+
+    #[test]
+    fn crlf_config_returns_warn() {
+        let content = "Host foo\r\n    HostName foo.example.com\r\n    Port 22\r\n";
+        let check = crlf_warning_for(content).expect("expected a Warn");
+        assert!(matches!(check.status, Status::Warn));
+        assert!(check.detail.contains("CRLF"));
+        assert!(check.detail.contains("tr -d"));
+    }
+
+    #[test]
+    fn empty_config_returns_none() {
+        assert!(crlf_warning_for("").is_none());
+    }
+
+    #[test]
+    fn crlf_in_first_few_lines_still_caught() {
+        // Mixed CRLF/LF is still a problem because OpenSSH chokes on
+        // any CR-bearing line — surface it.
+        let content = "Host foo\r\n    HostName foo.example.com\n";
+        assert!(crlf_warning_for(content).is_some());
     }
 }
 
