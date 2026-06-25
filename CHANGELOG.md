@@ -8,6 +8,114 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.9.0] — 2026-06-26
+
+Feature round + a measurable size win after eight v0.8.x patches.
+Three sources fed v0.9: operational hardening leftover from the
+v0.8 cycle, UX ideas borrowed (selectively) from `Adembc/lazyssh`,
+and a long-deferred dependency cleanup.
+
+### Added
+
+- **doctor surfaces CRLF in `~/.ssh/config`** (G1). When the user
+  copies a config off a Windows host or saves it through an editor
+  whose `files.eol` is CRLF, OpenSSH treats `\r` as part of an alias
+  token and every `Host` match silently fails. doctor now scans the
+  first 100 lines and emits a `WARN` with the exact `tr -d '\r'`
+  fix. Clean configs see no extra line.
+- **doctor surfaces nested `Include` scope** (G2). Pre-v0.8.4
+  installs (and any user who hand-edits the `~/.ssh/config` block
+  sshc injected) can end up with the `Include` line nested under a
+  `Host <pattern>` stanza. OpenSSH then only fires sshc.conf for
+  that alias, making every sshc-managed host invisible to
+  `ssh <other-alias>`. doctor identifies the offending stanza, names
+  it in the warning, and suggests adding `Match all` directly above
+  the Include — or re-running `sshc -m` → `i` on v0.8.4+ which
+  emits the terminator automatically.
+- **Sticky-on-error status messages** (G3). The single most painful
+  failure mode of the v0.7–v0.8 cycle was status messages getting
+  overwritten by the modal-close redraw before the user could see
+  them. Split `StatusMessage` into `Info` (v0.6 transient, 3 s
+  timeout) and `Error` (stays visible until the user's next
+  keystroke). All seven real failure paths (apply_form, persist,
+  ssh -G, include injection, etc.) now use `Error`; routine
+  confirmations stay `Info`.
+- **`c` copies a one-line ssh command** (G4). Pressing `c` on a
+  selected host runs `ssh -G <alias>`, reduces the dump to
+  `ssh user@host -p port -i key` (dropping defaults like port 22 or
+  empty identityfile), and pushes the line onto the system
+  clipboard via `arboard`. Useful when sharing a connection string
+  with someone who doesn't have your `~/.ssh/config`. Clipboard
+  failures (Wayland w/o display, etc.) surface as a sticky Error so
+  the line isn't silently dropped.
+- **Typed Forwarding form fields** (G5). The add/modify host form
+  grows from 7 to 10 fields with a dimmed `─── Forwarding ───`
+  section header between Tags and the freeform Options field, and
+  a `─── Advanced ───` header above Options. `LocalForward`,
+  `RemoteForward`, and `DynamicForward` are now typed
+  `Option<String>` values on `Host`, parsed and serialized
+  round-trip. Loose validation matches OpenSSH's
+  `[bind:]port host:hostport` (Local/Remote) and `[bind:]port`
+  (Dynamic) shapes; deep validation is left to ssh on connect
+  (anti-feature 5: no full `config(5)` parser). Multi-directive
+  hosts keep their extras in the free-form `extra` block so the
+  round-trip is lossless.
+- **`g` TCP reachability probe** (G6). Distinguishes "host is down"
+  from "ssh config is wrong" without spawning ssh. `g` resolves the
+  selected alias through `ssh -G` (reusing the `v`/`c` cache),
+  attempts a raw TCP connect to the hostname:port endpoint with a
+  2-second budget, and reports either a sticky `✗ TCP unreachable`
+  error or a transient `✓ TCP reach: host:port (N ms)`. `nc -z`
+  semantics — reachability ≠ authentication, anti-feature 1 stands.
+- **Windows ARM64 release artifacts** (G8). cargo-dist now produces
+  `sshc-aarch64-pc-windows-msvc.zip` alongside the existing
+  x86_64 Windows artifact. The PowerShell installer routes
+  ARM64 hosts to the matching binary automatically.
+
+### Changed
+
+- **HTTP/TLS: ureq + native-tls, explicitly wired** (G7). v0.8.0
+  shipped ureq with default rustls + webpki-roots after the
+  initial native-tls attempt died with "no TLS backend is
+  configured". v0.9 closes that loop by handing `AgentBuilder` an
+  explicit `tls_connector` — the step v0.8 R6 missed. The release
+  binary on macOS arm64 shrinks from 5.95 MB (v0.9 R6, with
+  arboard + new exec/ surface) to **3.76 MB** (-2.18 MB), well
+  under the v0.7-era baseline of 3.0 MB even with everything v0.8
+  added on top. Dropping ring as a transitive dependency also
+  unblocked `cargo check --target x86_64-pc-windows-msvc` from
+  macOS hosts (broken since v0.8 R6 — see the
+  `docs/WINDOWS_DEBUG_HANDOFF.md` rant for context).
+
+### Internal
+
+- `host_form` row layout split into a small `Row` enum so section
+  headers (`Forwarding`, `Advanced`) participate in the layout
+  without confusing Tab routing.
+- `FormPayload` + `FormOutcome` pick up `#[allow(clippy::large_enum_variant)]`
+  rather than the boxing dance — both are stack values with
+  one-call lifecycles.
+- All 8 `Host` literal fixtures (model, app/tests, ui/list,
+  ui/preview, ui/modal, inline_app, probe, examples) gained the
+  three new forwarding defaults.
+- New module `src/exec/tcp_reach.rs` houses the G6 reachability
+  helper. Network surface stays in `src/exec/*`.
+- doctor's `Path` import is no longer cfg(unix)-gated (G2 uses it
+  on every platform).
+- `~/.cargo/bin/sshc 0.9.0` doctor smoke run: 7 PASS lines, including
+  the update check landing through native-tls.
+
+### Out of scope (carried into v0.10+)
+
+- Multiple Forwarding directives per host (G5 takes the last and
+  cascades the rest into `extra`; round-trip is preserved).
+- Self-built SSH client, SCP, key deployment — anti-features 1 + 2
+  still stand; lazyssh's roadmap items in that direction are
+  intentionally **not** mirrored.
+- Always-on / startup update check — anti-feature 4 stands. `g` for
+  reachability is the user-driven probe; the GitHub Releases call
+  fires only inside `--doctor`.
+
 ## [0.8.4] — 2026-05-21
 
 Hotfix for a load-bearing `inject_include` bug present since v0.4.0.

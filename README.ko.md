@@ -48,7 +48,7 @@ sshc
 | `sshc` | 인라인 | 셸 위에서 호스트 picker를 띄우고, 선택하면 ssh 접속한 뒤 다시 셸로 돌아옵니다. 화면이 전환되지 않습니다. |
 | `sshc <alias>` | 다이렉트 | picker를 건너뛰고 바로 `ssh <alias>`. 모르는 alias면 stderr에 안내 후 종료 코드 1. |
 | `sshc -m` | 관리 | 전체 화면 TUI. 호스트 추가/수정/삭제, 태그, 상태 확인, `$EDITOR`로 직접 편집까지. |
-| `sshc --doctor` | 진단 | 환경 점검만 (수정은 하지 않음): `~/.ssh` 권한, sshc.conf 존재, Include 줄, `ssh` 바이너리, `SSH_AUTH_SOCK`(Windows에서는 OpenSSH/Pageant named pipe), 최신 릴리스 확인. 무언가 깨졌을 때만 비정상 종료. 네트워크 호출이 싫으면 `SSHC_NO_UPDATE_CHECK=1`로 업데이트 점검만 건너뜁니다. |
+| `sshc --doctor` | 진단 | 환경 점검만 (수정은 하지 않음): `~/.ssh` 권한, sshc.conf 존재, Include 줄, `ssh` 바이너리, `SSH_AUTH_SOCK`(Windows에서는 OpenSSH/Pageant named pipe), 최신 릴리스 확인. v0.9부터는 `~/.ssh/config`의 CRLF 줄종결자와 sshc Include가 다른 Host stanza 내부에 nested된 케이스도 함께 경고합니다. 무언가 깨졌을 때만 비정상 종료. 네트워크 호출이 싫으면 `SSHC_NO_UPDATE_CHECK=1`로 업데이트 점검만 건너뜁니다. |
 
 인라인 모드는 스크롤백을 건드리지 않고, 관리 모드는 편집에 어울리는
 전체 화면이라 따로 플래그를 둡니다.
@@ -86,6 +86,8 @@ sshc
 | t | 태그 편집 |
 | f | 즐겨찾기(★) 토글 |
 | v | `ssh -G <alias>`로 해석된 설정 보기 |
+| c | 선택 호스트의 `ssh user@host -p port -i key` 한 줄 명령을 클립보드에 복사 |
+| g | TCP reachability 체크 — 해석된 hostname:port로 TCP 연결만 시도해 도달성/지연을 알려줌 |
 | e | 해당 호스트 줄에서 `$EDITOR` 열기 |
 | M | 외부(`~/.ssh/config`) 호스트를 `sshc.conf`로 끌어오기 (원본 엔트리는 그대로 두므로 중복 `ssh -G` 매치가 싫다면 사용자가 직접 삭제) |
 | i | `~/.ssh/config`에 Include 줄 주입 |
@@ -93,7 +95,9 @@ sshc
 | q, Esc | 종료 / 취소 |
 
 폼 안에서는: Tab/Shift+Tab으로 필드 이동, Enter로 제출, Esc로 취소,
-Ctrl+U로 현재 필드 비우기.
+Ctrl+U로 현재 필드 비우기. v0.9에서는 Tags와 Options 사이에 별도
+`Forwarding` 섹션이 생겨 `LocalForward` / `RemoteForward` /
+`DynamicForward`를 typed 필드로 직접 입력할 수 있습니다.
 
 ## 설치
 
@@ -108,7 +112,7 @@ brew install hang-in/tap/sshc
 ### 소스에서 cargo install
 
 ```sh
-cargo install --git https://github.com/hang-in/sshc --tag v0.8.4
+cargo install --git https://github.com/hang-in/sshc --tag v0.9.0
 ```
 
 ### 소스 빌드
