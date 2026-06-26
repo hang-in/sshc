@@ -8,6 +8,132 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.13.0] — 2026-06-26
+
+Mixed cycle. One deps swap (G1 toml_edit removal) takes another
+chunk off the binary, and two UX gaps from v0.10 / v0.12 close
+out (G2 preview Forwarding section, G3 doctor's
+`ProxyCommand %h/%p/%r` substitution). README + README.ko
+caught up to four pieces of v0.8-v0.12 surface that hadn't been
+documented.
+
+### Added
+
+- **Preview panel shows typed Forwarding summary + first entry**
+  (G2). v0.10 G1 promoted the three `*Forward` directives to
+  typed Vec<String>; v0.12 R3 made them editable through a list
+  modal. The v0.6 preview pane never caught up — Forwarding
+  configuration was invisible until you opened the form. v0.13
+  G2 adds:
+
+      Forward:  L:2 R:1 D:0
+                8080 localhost:80
+
+  Local / Remote / Dynamic counts on one row, first entry on
+  the next so the panel shows *content*, not just a count.
+  Section is omitted entirely when every Vec is empty
+  (no row, no blank line gap) — same shape as the existing
+  Extra handling.
+- **`doctor` substitutes `%h` / `%p` / `%r` in ProxyCommand
+  tokens before walking PATH** (G3). v0.10 G4 surfaced
+  "ProxyCommand binary not on PATH" but skipped any token
+  containing `%` or `$`. The most common shape —
+  `ProxyCommand nc %h %p` or
+  `ProxyCommand corp-helper %h %p` — fell exactly into that
+  skip, so the check passed silently when it should have
+  fired. v0.13 G3 narrows the skip:
+  - `$` still skips (shell variables — we don't shell out).
+  - `%h` / `%p` / `%r` get substituted from the host's typed
+    fields (with sensible fallbacks: alias for hostname,
+    "22" for port, `$USER` / `$USERNAME` / "user" for user).
+    `%%` becomes a literal `%`.
+  - After substitution, if any `%` is still in the token
+    (anything we don't model — `%C`, `%u`, `%L`) we skip.
+    Modelling the full OpenSSH substitution set would creep
+    into anti-feature 5 (complete `config(5)` parser); the
+    three we cover are the ones that actually appear in real
+    ProxyCommand strings.
+
+### Changed
+
+- **`toml = "0.5"` (drops `toml_edit` transitive)** (G1).
+  cargo bloat on v0.12.0 ranked `toml_edit` at 167 KiB of
+  `.text` — 11.7% of the binary — and v0.10 G1 / v0.12 R3
+  showed sshc never needs format-preservation (state.toml is
+  rewritten from scratch every save). Going back to
+  `toml = "0.5"` (pre-`toml_edit` split) drops the whole
+  format-preserving layer.
+
+  Measured impact on macOS arm64 release binary:
+
+  | Phase | Bytes | Δ vs prior |
+  |---|---:|---:|
+  | v0.12.0 (master) | 2,729,456 | — |
+  | v0.13.0 (after toml swap) | 2,470,688 | −258,768 (−9.5%) |
+
+  cargo-dist artifact (per-platform .tar.xz / .zip) deltas
+  vs v0.12.0 land at tag-push time and are reported in the
+  GitHub Release notes.
+
+  One internal schema reorder accompanied the swap:
+  `MemorySection::sort_axis` (scalar) moved BEFORE
+  `recent: Vec<RecentEntry>` (array of tables). toml 0.5
+  enforces the TOML spec's "scalar fields before tables"
+  rule; toml 0.8's format-preserving emitter had silently
+  reordered when v0.12 G3 appended sort_axis after recent.
+  `#[serde(default)]` on every field means existing v0.12
+  state.toml files load cleanly regardless of where their
+  keys land.
+- **README + README.ko: four gap fixes** (R1).
+  - Windows ARM64 (`sshc-aarch64-pc-windows-msvc.zip`) artifact
+    added to the Windows install section — it's been shipping
+    since v0.8 but was undocumented.
+  - Hero / 소개 paragraph quotes the v0.12.0 measured release
+    sizes (macOS arm64 ~810 KB, Linux x64 ~1.16 MB, Windows
+    x64 ~1.10 MB) so the "small single binary" claim has
+    concrete numbers.
+  - Form section splits IdentityFile multi-value into its own
+    paragraph and adds the in-modal keymap table covering
+    Shift+↑/↓ reorder + the IdentityFile candidate cycle
+    that lives in edit mode.
+  - `v` keymap row rewritten to clarify it opens the
+    *resolved* `ssh -G <alias>` output for debugging
+    Include / Match ordering — the v0.6 wording sounded like
+    sshc was validating the alias itself.
+
+### Internal
+
+- `substitute_known(token, host) -> Option<String>` helper
+  isolates the OpenSSH-style marker substitution. Returns
+  `None` on any unknown `%x` so the caller can `continue`
+  without branching on the string contents. Five new tests.
+- Two new preview tests (`renders_with_multi_forwarding_*` /
+  `renders_without_forwarding_omits_section`) +
+  `render_text(term)` test-helper that walks the TestBackend
+  buffer into a `String` for substring assertions.
+- toml downgrade: a one-line Cargo.toml change. No
+  `src/state/mod.rs` API surface moved — `from_str` and
+  `to_string_pretty` are stable from 0.5 onwards.
+
+### Migration
+
+- state.toml: no migration. `#[serde(default)]` on every
+  field means missing keys (and reordered keys) load
+  cleanly.
+- v0.13 binaries running on a v0.12 state.toml file will
+  pick up the v0.12 `sort_axis` value verbatim; the next
+  save reorders the keys so the file conforms to toml 0.5's
+  scalar-before-table requirement.
+
+### Out of scope (carried into v0.14+)
+
+- nucleo_matcher → smaller fuzzy (69 KiB candidate).
+- ureq surface trim (118 KiB candidate; v0.9 R7 already did
+  the rustls→native-tls win).
+- K/J as Shift+↑/↓ reorder alias.
+- Help modal Shift+↑/↓ + S persistence note.
+- doctor: `SSHC_NO_OSC52` + Wayland-no-display hint.
+
 ## [0.12.0] — 2026-06-26
 
 UX round on top of v0.11's size win. Three goals; all delivered.
