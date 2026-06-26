@@ -35,6 +35,26 @@ pub struct MemorySection {
     /// picker sorts these to the top regardless of fuzzy score.
     #[serde(default)]
     pub favorites: Vec<String>,
+    /// v0.12 G3: persisted sort-axis preference. Loaded into
+    /// `App.sort_axis` on `App::new`; written back on every `S`
+    /// press through `App::cycle_sort_axis`. `#[serde(default)]`
+    /// means pre-v0.12 state.toml files load with the default
+    /// (Alias), matching the v0.10 G5 starting axis.
+    #[serde(default)]
+    pub sort_axis: SortAxisPersisted,
+}
+
+/// v0.12 G3: state.toml-side representation of the sort axis. The
+/// in-memory `SortAxis` enum lives in `app::mod` (it carries `Default`
+/// behaviour and a cycle method tied to UI logic); keeping that crate
+/// out of `state::schema` is what makes R-G6 hold. Conversion lives
+/// in app (one match each way).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum SortAxisPersisted {
+    #[default]
+    Alias,
+    Recent,
+    Reachability,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]

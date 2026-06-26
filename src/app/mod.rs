@@ -66,6 +66,27 @@ impl SortAxis {
             SortAxis::ProbeStateOpenFirst => SortAxis::AliasAlpha,
         }
     }
+
+    /// v0.12 G3: convert from the state.toml-side enum. Pure mapping;
+    /// state crate doesn't know about SortAxis (R-G6).
+    pub fn from_persisted(p: crate::state::schema::SortAxisPersisted) -> Self {
+        use crate::state::schema::SortAxisPersisted as P;
+        match p {
+            P::Alias => SortAxis::AliasAlpha,
+            P::Recent => SortAxis::RecentDesc,
+            P::Reachability => SortAxis::ProbeStateOpenFirst,
+        }
+    }
+
+    /// v0.12 G3: convert into the state.toml-side enum for persistence.
+    pub fn to_persisted(self) -> crate::state::schema::SortAxisPersisted {
+        use crate::state::schema::SortAxisPersisted as P;
+        match self {
+            SortAxis::AliasAlpha => P::Alias,
+            SortAxis::RecentDesc => P::Recent,
+            SortAxis::ProbeStateOpenFirst => P::Reachability,
+        }
+    }
 }
 
 /// Tracks why a form was opened, so the submitted payload can be routed.
@@ -132,6 +153,10 @@ impl App {
             .first()
             .map(|e| e.alias.clone())
             .or_else(|| state.memory.last_connected_alias.clone());
+        // v0.12 G3: pull the persisted sort axis out before `state`
+        // gets moved into the struct. Pre-v0.12 state.toml has no
+        // `sort_axis` key → `#[serde(default)]` returns `Alias`.
+        let sort_axis = SortAxis::from_persisted(state.memory.sort_axis);
         Self {
             hosts,
             filtered,
@@ -147,7 +172,7 @@ impl App {
             probe_generation: 0,
             sshc_conf_path: crate::storage::sshc_conf_path(),
             validation_cache: std::collections::HashMap::new(),
-            sort_axis: SortAxis::default(),
+            sort_axis,
             pending_action: None,
             active_form_context: None,
             matcher: nucleo::Matcher::new(nucleo::Config::DEFAULT),
@@ -285,6 +310,14 @@ impl App {
     /// immediately. Emits an Info status with the new label.
     pub(super) fn cycle_sort_axis(&mut self) {
         self.sort_axis = self.sort_axis.next();
+        // v0.12 G3: persist the new axis so a fresh sshc session
+        // resumes with the user's preference. save() is best-effort
+        // — if the write fails, the in-memory cycle still applies
+        // and the next successful save catches up. We don't surface
+        // a state-write error here because the Info hint below has
+        // already taken the status bar slot.
+        self.state.memory.sort_axis = self.sort_axis.to_persisted();
+        let _ = crate::state::save(&self.state);
         self.apply_filter();
         self.status_message = Some(StatusMessage::new(format!(
             "sorted by {}",

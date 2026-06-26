@@ -218,6 +218,35 @@ fn test_open_promote_form_alias_not_found_silent_noop() {
 }
 
 #[test]
+fn test_sort_axis_loaded_from_state_on_new() {
+    // v0.12 G3: a state.toml with sort_axis = Recent yields an App
+    // whose in-memory axis is RecentDesc — no manual cycle needed.
+    use crate::app::SortAxis;
+    use crate::state::schema::{SortAxisPersisted, State};
+    let mut state = State {
+        version: 1,
+        setup: Default::default(),
+        memory: Default::default(),
+    };
+    state.memory.sort_axis = SortAxisPersisted::Recent;
+    let app = App::new_with_state(vec![make_host("a")], state);
+    assert_eq!(app.sort_axis, SortAxis::RecentDesc);
+}
+
+#[test]
+fn test_cycle_sort_axis_persists_to_state_memory() {
+    use crate::app::SortAxis;
+    use crate::state::schema::SortAxisPersisted;
+    let mut app = App::new(vec![make_host("a")]);
+    assert_eq!(app.state.memory.sort_axis, SortAxisPersisted::Alias);
+    app.cycle_sort_axis();
+    assert_eq!(app.sort_axis, SortAxis::RecentDesc);
+    assert_eq!(app.state.memory.sort_axis, SortAxisPersisted::Recent);
+    app.cycle_sort_axis();
+    assert_eq!(app.state.memory.sort_axis, SortAxisPersisted::Reachability);
+}
+
+#[test]
 fn test_sort_axis_alias_alpha_default() {
     let hosts = vec![make_host("zeta"), make_host("alpha"), make_host("middle")];
     let mut app = App::new(hosts);
