@@ -18,7 +18,7 @@ nucleo = "0.5"
 dirs = "6"
 anyhow = "1"
 log = "0.4"
-env_logger = "0.11"
+env_logger = { version = "0.11", default-features = false }
 toml = "0.8"
 serde = { version = "1", features = ["derive"] }
 # Sync HTTP client for `sshc --doctor`'s update-availability check.
