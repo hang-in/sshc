@@ -622,13 +622,28 @@ fn proxy_command_warning_for(hosts: &[crate::config::model::Host]) -> Option<Che
             let Some(token) = extract_first_token(value) else {
                 continue;
             };
-            // Skip variable-laden tokens — we can't resolve `%h`,
-            // `%p`, `${...}` etc. without ssh-side substitution.
-            if token.contains('%') || token.contains('$') {
+            // v0.10 G4 skipped any token with `%` or `$`. v0.13 G3
+            // narrows: shell-variable `$` still skips (can't resolve
+            // without the shell layer), but `%h` / `%p` / `%r` get
+            // substituted from the host and re-checked. The substituted
+            // token still has to be marker-free or we skip again
+            // (anything like `%C` we don't model is conservative).
+            if token.contains('$') {
                 continue;
             }
-            if find_on_path(&token).is_none() {
-                missing.entry(token).or_default().push(host.alias.clone());
+            let resolved = if token.contains('%') {
+                match substitute_known(&token, host) {
+                    Some(s) if !s.contains('%') => s,
+                    _ => continue,
+                }
+            } else {
+                token
+            };
+            if find_on_path(&resolved).is_none() {
+                missing
+                    .entry(resolved)
+                    .or_default()
+                    .push(host.alias.clone());
             }
         }
     }
@@ -652,6 +667,52 @@ fn proxy_command_warning_for(hosts: &[crate::config::model::Host]) -> Option<Che
         status: Status::Warn,
         detail: format!("not on PATH — {}", parts.join(", ")),
     })
+}
+
+/// v0.13 G3: substitute the OpenSSH-style `%h` / `%p` / `%r` tokens
+/// against a single host. Returns `Some(substituted)` if every `%`
+/// pair we hit was one of the three we model; `None` if any
+/// unrecognised `%x` shows up (callers treat that as "skip — too
+/// risky to assume").
+///
+/// OpenSSH has more substitution markers than these three (`%C`,
+/// `%u`, `%L`, …); modelling all of them would creep into the
+/// "complete ssh_config parser" anti-feature. The three we support
+/// are the ones every reasonable ProxyCommand uses to thread the
+/// host identity through to the helper binary.
+fn substitute_known(token: &str, host: &crate::config::model::Host) -> Option<String> {
+    let hostname = host.hostname.clone().unwrap_or_else(|| host.alias.clone());
+    let port = host
+        .port
+        .map(|p| p.to_string())
+        .unwrap_or_else(|| "22".into());
+    let user = host
+        .user
+        .clone()
+        .or_else(|| std::env::var("USER").ok())
+        .or_else(|| std::env::var("USERNAME").ok())
+        .unwrap_or_else(|| "user".into());
+
+    let mut out = String::with_capacity(token.len());
+    let mut chars = token.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '%' {
+            out.push(c);
+            continue;
+        }
+        let Some(marker) = chars.next() else {
+            // Trailing `%` with no marker — treat as unrecognised.
+            return None;
+        };
+        match marker {
+            'h' => out.push_str(&hostname),
+            'p' => out.push_str(&port),
+            'r' => out.push_str(&user),
+            '%' => out.push('%'), // ssh allows literal `%%`
+            _ => return None,
+        }
+    }
+    Some(out)
 }
 
 /// Extract the first whitespace-delimited token from a ProxyCommand
@@ -901,7 +962,7 @@ Host foo
 
 #[cfg(test)]
 mod proxy_command_tests {
-    use super::{extract_first_token, proxy_command_warning_for, Status};
+    use super::{extract_first_token, proxy_command_warning_for, substitute_known, Status};
     use crate::config::model::Host;
     use std::path::PathBuf;
 
@@ -963,17 +1024,68 @@ mod proxy_command_tests {
     }
 
     #[test]
-    fn variable_laden_token_is_skipped() {
-        // ssh substitutes %r, %h, %p and the shell may expand $JUMP —
-        // we can't resolve those without ssh's own variable layer.
-        let hosts = vec![host_with(
-            "v",
-            vec![
-                "ProxyCommand %h-helper %h %p",
-                "ProxyCommand $JUMP_BIN -h %h",
-            ],
-        )];
+    fn proxycommand_with_shell_var_still_skipped() {
+        // v0.13 G3 regression guard: `$JUMP_BIN` is a shell variable
+        // and we can't resolve it without the shell layer — still
+        // skipped. This was the only thing the v0.10 G4 path
+        // protected; v0.13 G3 narrows the skip to just `$`.
+        let hosts = vec![host_with("v", vec!["ProxyCommand $JUMP_BIN -h %h"])];
         assert!(proxy_command_warning_for(&hosts).is_none());
+    }
+
+    #[test]
+    fn substitute_known_replaces_h_p_r() {
+        // Build a host whose hostname/port/user are all known so
+        // every supported substitution flips the buffer.
+        let mut h = host_with("svc", vec![]);
+        h.hostname = Some("svc.example.com".to_string());
+        h.port = Some(2222);
+        h.user = Some("deploy".to_string());
+        assert_eq!(
+            substitute_known("%h-helper-%r-%p", &h),
+            Some("svc.example.com-helper-deploy-2222".to_string())
+        );
+    }
+
+    #[test]
+    fn substitute_known_skips_on_unknown_marker() {
+        // `%C` is a real OpenSSH substitution (hashed connection
+        // tuple) we deliberately don't model; treat it as opaque so
+        // doctor stays conservative.
+        let h = host_with("a", vec![]);
+        assert!(substitute_known("helper-%C", &h).is_none());
+    }
+
+    #[test]
+    fn substitute_known_handles_double_percent_literal() {
+        // ssh allows `%%` for a literal `%`. Mirror that or callers
+        // would falsely treat a literal-percent token as
+        // unrecognised.
+        let h = host_with("a", vec![]);
+        assert_eq!(substitute_known("100%%", &h), Some("100%".into()));
+    }
+
+    #[test]
+    fn proxycommand_with_substitution_catches_missing_helper() {
+        // v0.13 G3: previously this entry was silently skipped
+        // because of the `%h`. Now the helper is substituted to
+        // `<hostname>-helper-9a4f` and re-checked against PATH —
+        // which gives the user the WARN they actually wanted.
+        let mut h = host_with(
+            "v",
+            vec!["ProxyCommand sshc-doctor-no-such-bin-9a4f-%h %h %p"],
+        );
+        h.hostname = Some("svc.internal".to_string());
+        let check =
+            proxy_command_warning_for(&[h]).expect("expected a Warn for the substituted helper");
+        assert!(matches!(check.status, Status::Warn));
+        assert!(
+            check
+                .detail
+                .contains("sshc-doctor-no-such-bin-9a4f-svc.internal"),
+            "substituted token missing in detail: {}",
+            check.detail
+        );
     }
 
     #[test]
