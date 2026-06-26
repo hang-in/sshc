@@ -593,6 +593,140 @@ fn expand_user_simple(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
+/// v0.10 G4: hunt every `ProxyCommand` directive in the user's ssh
+/// config chain (including Include'd files). For each, extract the
+/// first whitespace-delimited token (the actual executable) and check
+/// whether it exists on `$PATH`. Aggregate missing tokens with the
+/// hosts that reference them and surface as a single WARN.
+fn check_proxy_commands() -> Option<Check> {
+    let path = home()?.join(".ssh").join("config");
+    if !path.exists() {
+        return None;
+    }
+    let hosts = crate::config::parser::parse_config(&path);
+    proxy_command_warning_for(&hosts)
+}
+
+/// Pure detection helper — exposed so unit tests can drive it from a
+/// hand-built Vec<Host> without hitting disk.
+fn proxy_command_warning_for(hosts: &[crate::config::model::Host]) -> Option<Check> {
+    use std::collections::BTreeMap;
+    let mut missing: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for host in hosts {
+        for line in &host.extra {
+            let trimmed = line.trim();
+            let Some(rest) = trimmed.strip_prefix("ProxyCommand") else {
+                continue;
+            };
+            let value = rest.trim();
+            let Some(token) = extract_first_token(value) else {
+                continue;
+            };
+            // Skip variable-laden tokens — we can't resolve `%h`,
+            // `%p`, `${...}` etc. without ssh-side substitution.
+            if token.contains('%') || token.contains('$') {
+                continue;
+            }
+            if find_on_path(&token).is_none() {
+                missing.entry(token).or_default().push(host.alias.clone());
+            }
+        }
+    }
+    if missing.is_empty() {
+        return None;
+    }
+    // Build the detail line. Multiple offenders show as
+    // `'foo' (3 host(s)), 'bar' (1)`; single-token form is tighter.
+    let parts: Vec<String> = missing
+        .iter()
+        .map(|(token, aliases)| {
+            if aliases.len() == 1 {
+                format!("'{token}' (1 host: {})", aliases[0])
+            } else {
+                format!("'{token}' ({} hosts)", aliases.len())
+            }
+        })
+        .collect();
+    Some(Check {
+        name: "proxy commands",
+        status: Status::Warn,
+        detail: format!("not on PATH — {}", parts.join(", ")),
+    })
+}
+
+/// Extract the first whitespace-delimited token from a ProxyCommand
+/// value. Handles a single leading double-quoted argument by returning
+/// the inside of the quotes; everything else is plain split.
+fn extract_first_token(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Some(rest) = trimmed.strip_prefix('"') {
+        let end = rest.find('"')?;
+        return Some(rest[..end].to_string());
+    }
+    Some(trimmed.split_whitespace().next()?.to_string())
+}
+
+/// Look up an executable on `$PATH`. On Unix the candidate must be a
+/// regular file with the executable bit set; on Windows we also try
+/// `PATHEXT` suffixes (`.exe`, `.bat`, `.cmd`, …). Returns the
+/// resolved path on success.
+fn find_on_path(token: &str) -> Option<PathBuf> {
+    // If the user wrote an absolute or relative path with separators
+    // we don't search — we just check that path directly.
+    if token.contains('/') || token.contains('\\') {
+        let p = PathBuf::from(token);
+        return if is_executable(&p) { Some(p) } else { None };
+    }
+    let path_var = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path_var) {
+        let candidate = dir.join(token);
+        if is_executable(&candidate) {
+            return Some(candidate);
+        }
+        #[cfg(windows)]
+        {
+            if let Some(pathext) = std::env::var_os("PATHEXT") {
+                for ext in std::env::split_paths(&pathext) {
+                    let ext_str = ext.to_string_lossy().to_string();
+                    let candidate_ext =
+                        dir.join(format!("{token}{}", ext_str.trim_start_matches('.')));
+                    // PATHEXT entries are like ".EXE"; some env vars
+                    // are paths and split_paths splits on `;`. Manual
+                    // join handles both.
+                    let combined = if ext_str.starts_with('.') {
+                        dir.join(format!("{token}{ext_str}"))
+                    } else {
+                        candidate_ext
+                    };
+                    if is_executable(&combined) {
+                        return Some(combined);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(unix)]
+fn is_executable(p: &Path) -> bool {
+    let Ok(meta) = std::fs::metadata(p) else {
+        return false;
+    };
+    if !meta.is_file() {
+        return false;
+    }
+    meta.permissions().mode() & 0o111 != 0
+}
+
+#[cfg(not(unix))]
+fn is_executable(p: &Path) -> bool {
+    p.is_file()
+}
+
 pub fn run() -> ExitCode {
     let mut checks: Vec<Check> = vec![
         check_ssh_config(),
@@ -604,6 +738,9 @@ pub fn run() -> ExitCode {
         checks.push(c);
     }
     if let Some(c) = check_include_scope() {
+        checks.push(c);
+    }
+    if let Some(c) = check_proxy_commands() {
         checks.push(c);
     }
     checks.extend([
@@ -759,6 +896,91 @@ Host foo
     HostName foo.example.com
 ";
         assert!(nested_include_warning_for(content, &fake_sshc_path()).is_none());
+    }
+}
+
+#[cfg(test)]
+mod proxy_command_tests {
+    use super::{extract_first_token, proxy_command_warning_for, Status};
+    use crate::config::model::Host;
+    use std::path::PathBuf;
+
+    fn host_with(alias: &str, extras: Vec<&str>) -> Host {
+        Host {
+            alias: alias.to_string(),
+            hostname: Some(format!("{alias}.example.com")),
+            user: None,
+            port: None,
+            identity_file: None,
+            line_start: 1,
+            source_file: PathBuf::from("/test/config"),
+            tags: Vec::new(),
+            extra: extras.into_iter().map(String::from).collect(),
+            local_forward: Vec::new(),
+            remote_forward: Vec::new(),
+            dynamic_forward: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn extract_first_token_plain() {
+        assert_eq!(extract_first_token("nc -X 5 %h %p"), Some("nc".to_string()));
+    }
+
+    #[test]
+    fn extract_first_token_quoted_arg_unwraps() {
+        assert_eq!(
+            extract_first_token("\"/opt/sshc helpers/proxy\" %h %p"),
+            Some("/opt/sshc helpers/proxy".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_first_token_empty_value() {
+        assert!(extract_first_token("").is_none());
+        assert!(extract_first_token("   ").is_none());
+    }
+
+    #[test]
+    fn no_proxycommand_returns_none() {
+        let hosts = vec![host_with("a", vec!["ForwardAgent yes"])];
+        assert!(proxy_command_warning_for(&hosts).is_none());
+    }
+
+    #[test]
+    fn missing_token_is_warned_with_host_count() {
+        // Use a token literally guaranteed to not be on PATH on any
+        // sshc-supported host.
+        let hosts = vec![
+            host_with("a", vec!["ProxyCommand sshc-doctor-no-such-bin-9a4f -h %h"]),
+            host_with("b", vec!["ProxyCommand sshc-doctor-no-such-bin-9a4f -h %h"]),
+        ];
+        let check =
+            proxy_command_warning_for(&hosts).expect("expected a Warn for missing proxy bin");
+        assert!(matches!(check.status, Status::Warn));
+        assert!(check.detail.contains("sshc-doctor-no-such-bin-9a4f"));
+        assert!(check.detail.contains("2 hosts"));
+    }
+
+    #[test]
+    fn variable_laden_token_is_skipped() {
+        // ssh substitutes %r, %h, %p and the shell may expand $JUMP —
+        // we can't resolve those without ssh's own variable layer.
+        let hosts = vec![host_with(
+            "v",
+            vec![
+                "ProxyCommand %h-helper %h %p",
+                "ProxyCommand $JUMP_BIN -h %h",
+            ],
+        )];
+        assert!(proxy_command_warning_for(&hosts).is_none());
+    }
+
+    #[test]
+    fn well_known_binary_passes_silently() {
+        // `sh` is on every sshc-supported platform's PATH.
+        let hosts = vec![host_with("s", vec!["ProxyCommand sh -c 'nc %h %p'"])];
+        assert!(proxy_command_warning_for(&hosts).is_none());
     }
 }
 
