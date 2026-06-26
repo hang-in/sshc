@@ -414,9 +414,12 @@ impl App {
                 return;
             }
         };
-        match arboard::Clipboard::new().and_then(|mut c| c.set_text(cmd.clone())) {
-            Ok(()) => {
+        match crate::exec::clipboard::copy_to_clipboard(&cmd) {
+            Ok(crate::exec::clipboard::ClipboardBackend::System) => {
                 self.status_message = Some(StatusMessage::new(format!("copied: {cmd}")));
+            }
+            Ok(crate::exec::clipboard::ClipboardBackend::Osc52) => {
+                self.status_message = Some(StatusMessage::new(format!("copied: {cmd} (osc52)")));
             }
             Err(e) => {
                 self.status_message = Some(StatusMessage::error(format!(

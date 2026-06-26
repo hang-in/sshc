@@ -1575,6 +1575,7 @@ dependencies = [
  "anyhow",
  "arboard",
  "assert_fs",
+ "base64",
  "crossterm",
  "dirs",
  "env_logger",
