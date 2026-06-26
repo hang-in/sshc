@@ -90,6 +90,7 @@ connected hosts float to the top of the list, so the common case is
 | v | open a modal showing the resolved `ssh -G <alias>` output (so you can see what ssh actually parsed from your config — useful for debugging Include / Match ordering) |
 | c | copy `ssh user@host -p port -i key` for the selected host to the clipboard (falls back to OSC 52 when the system clipboard is unreachable — set `SSHC_NO_OSC52` to disable) |
 | g | TCP reachability probe — connects to the resolved hostname:port, reports latency or error |
+| r | re-probe TCP reachability for *every* host in the list. sshc only auto-probes at startup + after edits (it's a picker, not a dashboard); `r` is the explicit refresh trigger. |
 | e | open `$EDITOR` at the host's line |
 | M | promote external host into `sshc.conf` (original `~/.ssh/config` entry left intact — delete manually if you don't want duplicate `ssh -G` matches) |
 | S | cycle the host list sort axis (alias → recent → reachability). v0.12 persists the chosen axis in `state.toml` so a fresh session resumes where you left off. |

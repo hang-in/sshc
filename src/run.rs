@@ -151,6 +151,14 @@ pub fn manage() -> Result<ExitCode, AppError> {
             Some(AppAction::OpenPromoteForm(alias)) => {
                 app.open_promote_form(&alias);
             }
+            Some(AppAction::RefreshReachability) => {
+                // v0.14: user pressed `r` to re-probe every host. The
+                // status message that announced "probing N…" was
+                // already set in App::refresh_reachability_all; the
+                // ProbePool emits InFlight updates before dispatching
+                // so the dots flip right away.
+                probe_pool.refresh(&app.hosts);
+            }
         }
     }
     Ok(ExitCode::SUCCESS)

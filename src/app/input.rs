@@ -85,6 +85,7 @@ impl App {
                 KeyCode::Char('v') => self.validate_selected(),
                 KeyCode::Char('c') => self.copy_ssh_command_for_selected(),
                 KeyCode::Char('g') => self.reach_check_for_selected(),
+                KeyCode::Char('r') => self.refresh_reachability_all(),
                 KeyCode::Char('M') => self.promote_selected(),
                 KeyCode::Char('S') => self.cycle_sort_axis(),
                 KeyCode::Char('i') => {

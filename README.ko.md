@@ -91,6 +91,7 @@ sshc
 | v | `ssh -G <alias>` 해석 결과를 모달로 보여줌 (ssh가 실제로 어떻게 파싱했는지 — Include / Match 순서 디버깅에 유용) |
 | c | 선택 호스트의 `ssh user@host -p port -i key` 한 줄 명령을 클립보드에 복사 (시스템 클립보드 실패 시 OSC 52 escape로 fallback — `SSHC_NO_OSC52`로 비활성화 가능) |
 | g | TCP reachability 체크 — 해석된 hostname:port로 TCP 연결만 시도해 도달성/지연을 알려줌 |
+| r | 모든 호스트의 TCP reachability를 한 번에 다시 검사. sshc는 시작할 때 + 편집 직후에만 자동 probe를 돌립니다(상시 대시보드가 아니라 picker라서); `r`는 그 사이의 명시적 새로고침. |
 | e | 해당 호스트 줄에서 `$EDITOR` 열기 |
 | M | 외부(`~/.ssh/config`) 호스트를 `sshc.conf`로 끌어오기 (원본 엔트리는 그대로 두므로 중복 `ssh -G` 매치가 싫다면 사용자가 직접 삭제) |
 | S | 호스트 목록 정렬축을 순환 (별칭 → 최근접속 → 도달성). v0.12부터 `state.toml`에 저장돼 다음 세션이 직전 설정 그대로 시작합니다. |

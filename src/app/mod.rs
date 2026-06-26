@@ -24,6 +24,12 @@ pub enum AppAction {
     /// Carries the alias so the runtime can look the host up after the
     /// list state has potentially shifted.
     OpenPromoteForm(String),
+    /// User pressed `r`: re-run TCP reachability probes against every
+    /// host in the list. sshc's UX is picker-and-go (not a dashboard
+    /// you leave open), so probes only fire at startup + after edits;
+    /// this is the explicit "I want the dots fresh now" trigger.
+    /// Runtime layer dispatches into `ProbePool::refresh`.
+    RefreshReachability,
 }
 
 /// Foreground UI mode. `List` is the host browser; `Modal` defers all key
@@ -378,6 +384,23 @@ impl App {
     ///
     /// Reuses the same `ssh -G` cache that `v`/`c` populate, so
     /// repeated presses don't re-spawn.
+    /// v0.14 G?: `r` — re-run TCP reachability against every host in
+    /// the list. sshc only probes at startup + after edits by design
+    /// (picker-and-go UX), so this is the explicit user trigger for
+    /// "I want the dots fresh now". The runtime layer is what owns
+    /// `ProbePool`, so we just set a pending `RefreshReachability`
+    /// action and let `run.rs` dispatch.
+    pub(super) fn refresh_reachability_all(&mut self) {
+        if self.hosts.is_empty() {
+            return;
+        }
+        self.pending_action = Some(AppAction::RefreshReachability);
+        self.status_message = Some(StatusMessage::new(format!(
+            "probing {} host(s)…",
+            self.hosts.len()
+        )));
+    }
+
     pub(super) fn reach_check_for_selected(&mut self) {
         let Some(alias) = self.selected_host().map(|h| h.alias.clone()) else {
             return;

@@ -218,6 +218,28 @@ fn test_open_promote_form_alias_not_found_silent_noop() {
 }
 
 #[test]
+fn test_r_key_emits_refresh_reachability_with_status_hint() {
+    // v0.14: `r` re-probes every host. App owns no ProbePool — it
+    // just sets the pending action and a status hint; the runtime
+    // layer (run.rs) is what dispatches the actual refresh.
+    let hosts = vec![make_host("a"), make_host("b"), make_host("c")];
+    let mut app = App::new(hosts);
+    app.handle_key(KeyEvent::from(KeyCode::Char('r')));
+    assert_eq!(app.take_action(), Some(AppAction::RefreshReachability));
+    let msg = app.status_message.as_ref().expect("status hint").text();
+    assert!(msg.contains("probing 3"), "got {msg:?}");
+}
+
+#[test]
+fn test_r_key_on_empty_host_list_is_noop() {
+    // Edge case: nothing to probe → no action, no status noise.
+    let mut app = App::new(Vec::new());
+    app.handle_key(KeyEvent::from(KeyCode::Char('r')));
+    assert!(app.take_action().is_none());
+    assert!(app.status_message.is_none());
+}
+
+#[test]
 fn test_sort_axis_loaded_from_state_on_new() {
     // v0.12 G3: a state.toml with sort_axis = Recent yields an App
     // whose in-memory axis is RecentDesc — no manual cycle needed.
