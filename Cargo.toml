@@ -34,7 +34,14 @@ ureq = { version = "2.10", default-features = false, features = ["native-tls"] }
 native-tls = "0.2"
 # Cross-platform clipboard for the `c` key (copy ssh command).
 # Wraps Cocoa on macOS, X11/Wayland on Linux, OpenClipboard on Windows.
-arboard = "3"
+# v0.10 G2: `default-features = false` strips the `image-data` feature
+# (and its image/tiff/PNG-decoder transitive deps) since sshc never
+# reads or writes images on the clipboard — text only. wayland-data-control
+# stays opt-in via the explicit feature so Wayland users still get the
+# fast path; OSC 52 (v0.10 G3) catches the rest.
+arboard = { version = "3", default-features = false, features = [
+    "wayland-data-control",
+] }
 # Base64 encoder for the OSC 52 clipboard fallback (v0.10 G3). Used
 # only by `src/exec/clipboard.rs`; no transitive surface elsewhere.
 base64 = "0.22"
