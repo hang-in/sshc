@@ -27,6 +27,9 @@ is tedious, and grepping aliases for ssh autocomplete loses tags and
 context. sshc opens an fzf-style picker right under your shell prompt
 — type, Enter, you're in.
 
+Single-binary, no daemon. Recent release artifacts: macOS arm64
+~810 KB, Linux x64 ~1.16 MB, Windows x64 ~1.10 MB.
+
 ## Quickstart
 
 ```sh
@@ -84,12 +87,12 @@ connected hosts float to the top of the list, so the common case is
 | d | delete (with confirm) |
 | t | edit tags |
 | f | toggle favorite / pin (★) |
-| v | `ssh -G <alias>` validation modal |
+| v | open a modal showing the resolved `ssh -G <alias>` output (so you can see what ssh actually parsed from your config — useful for debugging Include / Match ordering) |
 | c | copy `ssh user@host -p port -i key` for the selected host to the clipboard (falls back to OSC 52 when the system clipboard is unreachable — set `SSHC_NO_OSC52` to disable) |
 | g | TCP reachability probe — connects to the resolved hostname:port, reports latency or error |
 | e | open `$EDITOR` at the host's line |
 | M | promote external host into `sshc.conf` (original `~/.ssh/config` entry left intact — delete manually if you don't want duplicate `ssh -G` matches) |
-| S | cycle the host list sort axis (alias → recent → reachability; v0.12 persists the chosen axis in state.toml) |
+| S | cycle the host list sort axis (alias → recent → reachability). v0.12 persists the chosen axis in `state.toml` so a fresh session resumes where you left off. |
 | i | inject `Include` line into `~/.ssh/config` |
 | ? | help modal |
 | q, Esc | quit / cancel |
@@ -100,12 +103,24 @@ Ctrl+U clears the active field. v0.9 added typed `LocalForward`,
 section between Tags and the freeform `Options` field. v0.10 made
 those three fields *list editors* — Enter on the row opens a
 small list modal where you can add, edit, or delete each entry
-one line at a time. v0.12 extends the same modal to the
-`IdentityFile` row (OpenSSH lets a host carry multiple keys and
-tries them in order) and adds `Shift+↑/↓` reorder so declaration
-order is editable inside the modal — the v0.7.1 candidate picker
-that used to cycle `~/.ssh/*` keys now lives in the modal's edit
-mode (↑/↓ during edit picks from discovered candidates).
+one line at a time.
+
+v0.12 extends the same modal to the `IdentityFile` row — OpenSSH
+lets a host carry multiple keys and tries them in order, so sshc
+now stores `IdentityFile` as a list too. The v0.7.1 `~/.ssh/*`
+candidate picker (`↑`/`↓` cycling through discovered keys) lives
+inside the modal's edit mode now.
+
+Inside any list-edit modal:
+
+| Key | Action |
+|---|---|
+| ↑/↓ | move the cursor |
+| Enter | edit the selected entry (or seed a blank on the `+ add` row) |
+| d | delete the selected entry |
+| Shift+↑/↓ | reorder the selected entry one slot up or down (v0.12 G2 — OpenSSH treats declaration order as meaningful) |
+| ↑/↓ (in edit mode, IdentityFile only) | cycle through discovered `~/.ssh/*` private keys |
+| Esc | close the modal (or cancel an in-progress edit) |
 
 ## Installation
 
@@ -136,9 +151,12 @@ Requires Rust 1.85+.
 ### Windows
 
 Native Windows support landed in v0.7.0. Use the PowerShell
-installer or grab the `sshc-x86_64-pc-windows-msvc.zip` artifact
-from the [Releases](https://github.com/hang-in/sshc/releases)
-page directly.
+installer or grab a zip artifact from the
+[Releases](https://github.com/hang-in/sshc/releases) page —
+`sshc-x86_64-pc-windows-msvc.zip` for Intel/AMD64 boxes,
+`sshc-aarch64-pc-windows-msvc.zip` for Windows on ARM
+(Snapdragon X / Surface Pro X / Dev Kit 2023) — both have
+been shipped since v0.8.
 
 ```powershell
 # PowerShell — installs into %CARGO_HOME%\bin and updates PATH

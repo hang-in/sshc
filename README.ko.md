@@ -29,6 +29,9 @@ brew install hang-in/tap/sshc
 sshc는 셸 프롬프트 바로 아래에 picker를 띄워서, 검색해서 고른 다음
 Enter 한 번이면 접속까지 끝나도록 해 줍니다.
 
+단일 바이너리, 데몬 없음. 최신 릴리스 사이즈: macOS arm64 ~810 KB,
+Linux x64 ~1.16 MB, Windows x64 ~1.10 MB.
+
 ## 빠른 시작
 
 ```sh
@@ -85,12 +88,12 @@ sshc
 | d | 삭제 (확인 모달) |
 | t | 태그 편집 |
 | f | 즐겨찾기(★) 토글 |
-| v | `ssh -G <alias>`로 해석된 설정 보기 |
+| v | `ssh -G <alias>` 해석 결과를 모달로 보여줌 (ssh가 실제로 어떻게 파싱했는지 — Include / Match 순서 디버깅에 유용) |
 | c | 선택 호스트의 `ssh user@host -p port -i key` 한 줄 명령을 클립보드에 복사 (시스템 클립보드 실패 시 OSC 52 escape로 fallback — `SSHC_NO_OSC52`로 비활성화 가능) |
 | g | TCP reachability 체크 — 해석된 hostname:port로 TCP 연결만 시도해 도달성/지연을 알려줌 |
 | e | 해당 호스트 줄에서 `$EDITOR` 열기 |
 | M | 외부(`~/.ssh/config`) 호스트를 `sshc.conf`로 끌어오기 (원본 엔트리는 그대로 두므로 중복 `ssh -G` 매치가 싫다면 사용자가 직접 삭제) |
-| S | 호스트 목록 정렬축을 순환 (별칭 → 최근접속 → 도달성; v0.12부터 state.toml에 저장돼 다음 세션에도 유지) |
+| S | 호스트 목록 정렬축을 순환 (별칭 → 최근접속 → 도달성). v0.12부터 `state.toml`에 저장돼 다음 세션이 직전 설정 그대로 시작합니다. |
 | i | `~/.ssh/config`에 Include 줄 주입 |
 | ? | 도움말 모달 |
 | q, Esc | 종료 / 취소 |
@@ -99,12 +102,23 @@ sshc
 Ctrl+U로 현재 필드 비우기. v0.9에서 Tags와 Options 사이에 별도
 `Forwarding` 섹션이 생겨 `LocalForward` / `RemoteForward` /
 `DynamicForward`를 typed 필드로 입력할 수 있게 됐고, v0.10에서
-forwarding 세 필드가 *list editor*로 동작하게 바뀌었습니다. v0.12는
-같은 모달을 `IdentityFile` 행에도 적용 — OpenSSH가 호스트당 여러 키를
-순서대로 시도하는 방식을 그대로 표현 — 하고, 모달 안에서 `Shift+↑/↓`로
-항목 순서를 바꿀 수 있습니다. v0.7.1의 `~/.ssh/*` 후보 키 ↑/↓ picker는
-모달의 edit 모드 안으로 이동했습니다 (편집 중 ↑/↓이 discovered
-candidates 사이를 사이클).
+forwarding 세 필드가 *list editor*로 동작하게 바뀌었습니다.
+
+v0.12부터 같은 모달이 `IdentityFile` 행에도 적용됩니다 — OpenSSH가
+호스트당 여러 키를 순서대로 시도하는 방식을 sshc도 list로 표현합니다.
+v0.7.1의 `~/.ssh/*` 후보 키 picker(↑/↓로 detected 키 사이를 사이클)는
+모달의 edit 모드 안으로 이동했습니다.
+
+list-edit 모달 키맵:
+
+| 키 | 동작 |
+|---|---|
+| ↑/↓ | 커서 이동 |
+| Enter | 선택 항목 편집 (`+ add` 행에서는 빈 항목으로 시작) |
+| d | 선택 항목 삭제 |
+| Shift+↑/↓ | 선택 항목을 한 칸 위/아래로 재정렬 (v0.12 G2 — OpenSSH는 declaration 순서를 의미 있게 취급) |
+| ↑/↓ (편집 중, IdentityFile 전용) | discovered `~/.ssh/*` 키 사이를 사이클 |
+| Esc | 모달 닫기 (편집 중이면 편집 취소만) |
 
 ## 설치
 
@@ -137,7 +151,10 @@ Rust 1.85 이상 툴체인이 필요합니다.
 v0.7.0부터 네이티브 Windows 빌드를 함께 배포합니다. PowerShell
 설치 스크립트 한 줄이면 끝나고, 직접 압축 파일을 받고 싶으면
 [Releases](https://github.com/hang-in/sshc/releases) 페이지에서
-`sshc-x86_64-pc-windows-msvc.zip`을 내려받으면 됩니다.
+Intel/AMD64는 `sshc-x86_64-pc-windows-msvc.zip`, Windows on ARM
+(Snapdragon X / Surface Pro X / Dev Kit 2023)은
+`sshc-aarch64-pc-windows-msvc.zip`을 내려받으면 됩니다. 두 ARM/x64
+바이너리 모두 v0.8부터 배포됩니다.
 
 ```powershell
 # PowerShell — %CARGO_HOME%\bin에 설치하고 PATH도 업데이트합니다
