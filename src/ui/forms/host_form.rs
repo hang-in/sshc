@@ -1,4 +1,5 @@
 use crate::config::tags::normalize_tag;
+use crate::ui::forms::forwarding_list::{ForwardingKind, ForwardingListModal, ListOutcome};
 use crate::ui::modal::{FormOutcome, FormPayload, FormState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -13,6 +14,12 @@ use std::path::PathBuf;
 const FIELD_COUNT: usize = 10;
 /// Index of the IdentityFile field in `fields` / `labels`.
 const IDENTITY_INDEX: usize = 4;
+/// v0.10 G1: forwarding field indices in `fields[]`. These rows are
+/// summary cells; typing has no effect, Enter opens
+/// `ForwardingListModal` against the matching kind.
+const LOCAL_FORWARD_INDEX: usize = 6;
+const REMOTE_FORWARD_INDEX: usize = 7;
+const DYNAMIC_FORWARD_INDEX: usize = 8;
 /// v0.9 G5: section headers rendered between input rows. Each entry is
 /// `(field_index_before_which_header_appears, label)`. Headers are
 /// dimmed, non-focusable, and don't change Tab routing.
@@ -26,6 +33,19 @@ pub struct HostForm {
     /// IdentityFile field uses ↑/↓ to cycle through these so the user
     /// doesn't have to type the full path.
     identity_candidates: Vec<PathBuf>,
+    /// v0.10 G1: typed Forwarding entries, kept out of `fields` so
+    /// multiple entries per kind can be modeled. fields[6/7/8] hold
+    /// the *display summary* synced from these vectors.
+    local_forward_entries: Vec<String>,
+    remote_forward_entries: Vec<String>,
+    dynamic_forward_entries: Vec<String>,
+    /// Active child modal when the user is editing one of the three
+    /// forwarding lists. Rendering + key dispatch route through this
+    /// when set.
+    forwarding_modal: Option<ForwardingListModal>,
+    /// Which forwarding kind the open modal is editing — used to
+    /// route the result back into the right Vec on close.
+    forwarding_modal_kind: Option<ForwardingKind>,
 }
 
 impl HostForm {
@@ -40,11 +60,17 @@ impl HostForm {
             active_index: 0,
             error: None,
             identity_candidates,
+            local_forward_entries: Vec::new(),
+            remote_forward_entries: Vec::new(),
+            dynamic_forward_entries: Vec::new(),
+            forwarding_modal: None,
+            forwarding_modal_kind: None,
         }
     }
 
     // v0.5 surface called for 7 args; v0.8 R0 hoisted identity_candidates
-    // for R-G8 (8); v0.9 G5 adds three Forwarding fields (11). A
+    // for R-G8 (8); v0.9 G5 added three Forwarding fields (11); v0.10 G1
+    // promotes those to Vecs (still 11, just with different types). A
     // struct-of-args cleanup keeps drifting later — for now keep the
     // explicit signature so individual call sites stay legible.
     #[allow(clippy::too_many_arguments)]
@@ -55,13 +81,13 @@ impl HostForm {
         port: &str,
         identity_file: &str,
         tags_csv: &str,
-        local_forward: &str,
-        remote_forward: &str,
-        dynamic_forward: &str,
+        local_forward: Vec<String>,
+        remote_forward: Vec<String>,
+        dynamic_forward: Vec<String>,
         extra: &str,
         identity_candidates: Vec<PathBuf>,
     ) -> Self {
-        Self {
+        let mut form = Self {
             fields: [
                 alias.to_string(),
                 hostname.to_string(),
@@ -69,15 +95,70 @@ impl HostForm {
                 port.to_string(),
                 identity_file.to_string(),
                 tags_csv.to_string(),
-                local_forward.to_string(),
-                remote_forward.to_string(),
-                dynamic_forward.to_string(),
+                String::new(),
+                String::new(),
+                String::new(),
                 extra.to_string(),
             ],
             active_index: 0,
             error: None,
             identity_candidates,
+            local_forward_entries: local_forward,
+            remote_forward_entries: remote_forward,
+            dynamic_forward_entries: dynamic_forward,
+            forwarding_modal: None,
+            forwarding_modal_kind: None,
+        };
+        form.refresh_forwarding_summaries();
+        form
+    }
+
+    /// v0.10 G1: rebuild the summary text shown in `fields[6/7/8]` from
+    /// the underlying entry vectors. Called after `from_host` and after
+    /// a forwarding modal closes with new entries.
+    fn refresh_forwarding_summaries(&mut self) {
+        self.fields[LOCAL_FORWARD_INDEX] = Self::summary_for(&self.local_forward_entries);
+        self.fields[REMOTE_FORWARD_INDEX] = Self::summary_for(&self.remote_forward_entries);
+        self.fields[DYNAMIC_FORWARD_INDEX] = Self::summary_for(&self.dynamic_forward_entries);
+    }
+
+    fn summary_for(entries: &[String]) -> String {
+        match entries.len() {
+            0 => String::new(),
+            1 => entries[0].clone(),
+            n => format!("{} +{} more", entries[0], n - 1),
         }
+    }
+
+    fn forwarding_kind_for(index: usize) -> Option<ForwardingKind> {
+        match index {
+            LOCAL_FORWARD_INDEX => Some(ForwardingKind::Local),
+            REMOTE_FORWARD_INDEX => Some(ForwardingKind::Remote),
+            DYNAMIC_FORWARD_INDEX => Some(ForwardingKind::Dynamic),
+            _ => None,
+        }
+    }
+
+    fn entries_for(&self, kind: ForwardingKind) -> &Vec<String> {
+        match kind {
+            ForwardingKind::Local => &self.local_forward_entries,
+            ForwardingKind::Remote => &self.remote_forward_entries,
+            ForwardingKind::Dynamic => &self.dynamic_forward_entries,
+        }
+    }
+
+    fn set_entries_for(&mut self, kind: ForwardingKind, entries: Vec<String>) {
+        match kind {
+            ForwardingKind::Local => self.local_forward_entries = entries,
+            ForwardingKind::Remote => self.remote_forward_entries = entries,
+            ForwardingKind::Dynamic => self.dynamic_forward_entries = entries,
+        }
+    }
+
+    fn open_forwarding_modal(&mut self, kind: ForwardingKind) {
+        let entries = self.entries_for(kind).clone();
+        self.forwarding_modal = Some(ForwardingListModal::new(kind, entries));
+        self.forwarding_modal_kind = Some(kind);
     }
 
     /// Cycle `fields[IDENTITY_INDEX]` through `identity_candidates`.
@@ -153,23 +234,9 @@ impl HostForm {
             return Err("Maximum 16 distinct tags allowed".to_string());
         }
 
-        // v0.9 G5: typed Forwarding fields. Validation is loose — match
-        // OpenSSH's `[bind:]port:host:hostport` (Local/Remote) or
-        // `[bind:]port` (Dynamic) just enough to catch obvious typos.
-        // ssh itself does the deep parse on connect; we never want to
-        // replicate ssh_config(5) (anti-feature 5).
-        let local_forward = self.fields[6].trim();
-        if !local_forward.is_empty() && !looks_like_local_remote_forward(local_forward) {
-            return Err("Invalid LocalForward: expected `[bind:]port host:hostport`".to_string());
-        }
-        let remote_forward = self.fields[7].trim();
-        if !remote_forward.is_empty() && !looks_like_local_remote_forward(remote_forward) {
-            return Err("Invalid RemoteForward: expected `[bind:]port host:hostport`".to_string());
-        }
-        let dynamic_forward = self.fields[8].trim();
-        if !dynamic_forward.is_empty() && !looks_like_dynamic_forward(dynamic_forward) {
-            return Err("Invalid DynamicForward: expected `[bind:]port`".to_string());
-        }
+        // v0.10 G1: forwarding entries are now managed by the
+        // ForwardingListModal — every push through the modal is
+        // already validated. The form just hands the Vecs through.
 
         let extra = self.fields[9].trim();
 
@@ -180,54 +247,30 @@ impl HostForm {
             port: port_str.to_string(),
             identity_file: id_file.to_string(),
             tags_csv: tags_csv.to_string(),
-            local_forward: local_forward.to_string(),
-            remote_forward: remote_forward.to_string(),
-            dynamic_forward: dynamic_forward.to_string(),
+            local_forward: self.local_forward_entries.clone(),
+            remote_forward: self.remote_forward_entries.clone(),
+            dynamic_forward: self.dynamic_forward_entries.clone(),
             extra: extra.to_string(),
         })
     }
 }
 
-/// v0.9 G5 helper: accept `[bind:]port host:hostport` shape. Whitespace
-/// or `:` separates the local part from the remote; the remote is
-/// `host:hostport`. Catches obvious typos without trying to recreate
-/// ssh's own parser (anti-feature 5).
-fn looks_like_local_remote_forward(s: &str) -> bool {
-    // Split on first whitespace OR colon to find the remote part.
-    let mut parts = s.splitn(2, |c: char| c.is_whitespace());
-    let local = parts.next().unwrap_or("");
-    let remote = parts.next().unwrap_or("").trim();
-    if local.is_empty() || remote.is_empty() {
-        return false;
-    }
-    // local: digits OR bind:port — bind can include letters/dots
-    let local_port_ok = local
-        .rsplit(':')
-        .next()
-        .map(|p| p.chars().all(|c| c.is_ascii_digit()))
-        .unwrap_or(false);
-    // remote: must contain `:` separating host from port, and the
-    // trailing port must be all digits.
-    let remote_port_ok = remote
-        .rsplit_once(':')
-        .map(|(_, p)| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
-        .unwrap_or(false);
-    local_port_ok && remote_port_ok
-}
-
-/// v0.9 G5 helper: accept `port` or `bind:port`.
-fn looks_like_dynamic_forward(s: &str) -> bool {
-    if s.is_empty() {
-        return false;
-    }
-    s.rsplit(':')
-        .next()
-        .map(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
-        .unwrap_or(false)
-}
+// v0.9 G5 had `looks_like_local_remote_forward` /
+// `looks_like_dynamic_forward` helpers used by HostForm::validate.
+// v0.10 G1 moved per-entry validation into `ForwardingListModal` (one
+// path per kind, applied at the moment the user presses Enter inside
+// the list modal). The helpers themselves now live next to the modal
+// in `ui::forms::forwarding_list`.
 
 impl FormState for HostForm {
     fn render(&self, area: Rect, f: &mut Frame) {
+        // v0.10 G1: when a forwarding list modal is open, it owns the
+        // whole modal area. The parent HostForm waits underneath
+        // until the child closes.
+        if let Some(ref child) = self.forwarding_modal {
+            child.render(area, f);
+            return;
+        }
         let block = Block::default().title(" Host ").borders(Borders::ALL);
         let inner = block.inner(area);
         f.render_widget(block, area);
@@ -348,6 +391,36 @@ impl FormState for HostForm {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> FormOutcome {
+        // v0.10 G1: route every keystroke into the active forwarding
+        // modal until it reports Done/Cancel.
+        if self.forwarding_modal.is_some() {
+            let outcome = self
+                .forwarding_modal
+                .as_mut()
+                .map(|m| m.handle_key(key))
+                .unwrap_or(ListOutcome::Stay);
+            match outcome {
+                ListOutcome::Stay => {}
+                ListOutcome::Done => {
+                    let modal = self.forwarding_modal.take().unwrap();
+                    let kind = self.forwarding_modal_kind.take().unwrap();
+                    let new_entries = modal.entries().to_vec();
+                    self.set_entries_for(kind, new_entries);
+                    self.refresh_forwarding_summaries();
+                }
+                ListOutcome::Cancel => {
+                    self.forwarding_modal = None;
+                    self.forwarding_modal_kind = None;
+                }
+            }
+            return FormOutcome::Stay;
+        }
+        // Forwarding rows are summary-only: any character / backspace
+        // is ignored. Enter on them opens the child modal.
+        let on_forwarding = matches!(
+            self.active_index,
+            LOCAL_FORWARD_INDEX | REMOTE_FORWARD_INDEX | DYNAMIC_FORWARD_INDEX
+        );
         match key.code {
             KeyCode::Tab => {
                 self.active_index = (self.active_index + 1) % FIELD_COUNT;
@@ -366,12 +439,18 @@ impl FormState for HostForm {
                 self.cycle_identity(true);
                 FormOutcome::Stay
             }
-            KeyCode::Backspace => {
+            KeyCode::Backspace if !on_forwarding => {
                 self.fields[self.active_index].pop();
                 FormOutcome::Stay
             }
             KeyCode::Esc => FormOutcome::Cancel,
             KeyCode::Enter => {
+                if on_forwarding {
+                    if let Some(kind) = Self::forwarding_kind_for(self.active_index) {
+                        self.open_forwarding_modal(kind);
+                    }
+                    return FormOutcome::Stay;
+                }
                 if self.active_index + 1 < FIELD_COUNT {
                     self.active_index += 1;
                     FormOutcome::Stay
@@ -386,6 +465,9 @@ impl FormState for HostForm {
                 }
             }
             KeyCode::Char(c) => {
+                if on_forwarding {
+                    return FormOutcome::Stay;
+                }
                 if key.modifiers.contains(KeyModifiers::CONTROL) {
                     if c == 'u' || c == 'U' {
                         self.fields[self.active_index].clear();
@@ -535,9 +617,9 @@ mod tests {
             "22",
             "/k",
             "x,y",
-            "8080 localhost:80",
-            "9090 127.0.0.1:9090",
-            "1080",
+            vec!["8080 localhost:80".to_string()],
+            vec!["9090 127.0.0.1:9090".to_string()],
+            vec!["1080".to_string()],
             "ProxyJump bastion",
             Vec::new(),
         );
@@ -553,29 +635,7 @@ mod tests {
         assert_eq!(form.fields[9], "ProxyJump bastion");
     }
 
-    // v0.9 G5 validator helpers
-    #[test]
-    fn test_looks_like_local_remote_forward_accepts_canonical() {
-        assert!(looks_like_local_remote_forward("8080 localhost:80"));
-        assert!(looks_like_local_remote_forward(
-            "127.0.0.1:8080 host.example.com:80"
-        ));
-    }
-
-    #[test]
-    fn test_looks_like_local_remote_forward_rejects_obvious_typos() {
-        assert!(!looks_like_local_remote_forward(""));
-        assert!(!looks_like_local_remote_forward("8080"));
-        assert!(!looks_like_local_remote_forward("abc localhost:80"));
-        assert!(!looks_like_local_remote_forward("8080 localhost"));
-    }
-
-    #[test]
-    fn test_looks_like_dynamic_forward_variants() {
-        assert!(looks_like_dynamic_forward("1080"));
-        assert!(looks_like_dynamic_forward("127.0.0.1:1080"));
-        assert!(!looks_like_dynamic_forward(""));
-        assert!(!looks_like_dynamic_forward("abc"));
-        assert!(!looks_like_dynamic_forward("1080:"));
-    }
+    // v0.9 G5 validator unit tests moved to
+    // `ui::forms::forwarding_list::tests` along with the helpers they
+    // exercised. See that module for canonical-shape coverage.
 }

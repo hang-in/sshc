@@ -1,3 +1,4 @@
+pub mod forwarding_list;
 pub mod host_form;
 pub mod tag_form;
 

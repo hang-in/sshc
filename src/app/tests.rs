@@ -545,9 +545,9 @@ fn test_apply_form_add_host_writes_through_locked_writer() {
         identity_file: String::new(),
         tags_csv: String::new(),
         extra: String::new(),
-        local_forward: String::new(),
-        remote_forward: String::new(),
-        dynamic_forward: String::new(),
+        local_forward: Vec::new(),
+        remote_forward: Vec::new(),
+        dynamic_forward: Vec::new(),
     };
     app.apply_form(FormContext::AddHost, payload);
 

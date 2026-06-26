@@ -62,10 +62,11 @@ pub enum FormPayload {
         /// `ProxyJump bastion`). Multi-line edit not implemented in v0.4;
         /// the form accepts semicolon-separated entries and splits on `;`.
         extra: String,
-        /// v0.9 G5: typed Forwarding fields. Empty string ↔ unset.
-        local_forward: String,
-        remote_forward: String,
-        dynamic_forward: String,
+        /// v0.10 G1: typed Forwarding fields. Each is a list of one
+        /// or more directive values; empty Vec ↔ unset.
+        local_forward: Vec<String>,
+        remote_forward: Vec<String>,
+        dynamic_forward: Vec<String>,
     },
     Tags {
         tags_csv: String,

@@ -87,12 +87,9 @@ impl App {
             .unwrap_or_default();
         let tags_csv = host.tags.join(", ");
         let extra_joined = host.extra.join("; ");
-        // R1 transitional: HostForm still takes a single String per
-        // forwarding field. Show the first entry; R2's
-        // ForwardingListModal replaces this with a summary cell.
-        let local_forward = host.local_forward.first().cloned().unwrap_or_default();
-        let remote_forward = host.remote_forward.first().cloned().unwrap_or_default();
-        let dynamic_forward = host.dynamic_forward.first().cloned().unwrap_or_default();
+        let local_forward = host.local_forward.clone();
+        let remote_forward = host.remote_forward.clone();
+        let dynamic_forward = host.dynamic_forward.clone();
         let form = crate::ui::forms::HostForm::from_host(
             &host.alias,
             host.hostname.as_deref().unwrap_or(""),
@@ -100,9 +97,9 @@ impl App {
             &port_str,
             &identity,
             &tags_csv,
-            &local_forward,
-            &remote_forward,
-            &dynamic_forward,
+            local_forward,
+            remote_forward,
+            dynamic_forward,
             &extra_joined,
             discover_identity_files(),
         );
@@ -180,12 +177,9 @@ impl App {
             .unwrap_or_default();
         let tags_csv = host.tags.join(", ");
         let extra_joined = host.extra.join("; ");
-        // R1 transitional: HostForm still takes a single String per
-        // forwarding field. Show the first entry; R2's
-        // ForwardingListModal replaces this with a summary cell.
-        let local_forward = host.local_forward.first().cloned().unwrap_or_default();
-        let remote_forward = host.remote_forward.first().cloned().unwrap_or_default();
-        let dynamic_forward = host.dynamic_forward.first().cloned().unwrap_or_default();
+        let local_forward = host.local_forward.clone();
+        let remote_forward = host.remote_forward.clone();
+        let dynamic_forward = host.dynamic_forward.clone();
         let form = crate::ui::forms::HostForm::from_host(
             &host.alias,
             host.hostname.as_deref().unwrap_or(""),
@@ -193,9 +187,9 @@ impl App {
             &port_str,
             &identity,
             &tags_csv,
-            &local_forward,
-            &remote_forward,
-            &dynamic_forward,
+            local_forward,
+            remote_forward,
+            dynamic_forward,
             &extra_joined,
             discover_identity_files(),
         );
@@ -373,9 +367,9 @@ impl App {
         identity_file: String,
         tags_csv: String,
         extra: String,
-        local_forward: String,
-        remote_forward: String,
-        dynamic_forward: String,
+        local_forward: Vec<String>,
+        remote_forward: Vec<String>,
+        dynamic_forward: Vec<String>,
     ) -> Host {
         let port_parsed: Option<u16> = if port.is_empty() {
             None
@@ -394,11 +388,6 @@ impl App {
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
             .collect();
-        // R1 transitional: the form still passes one String per
-        // forwarding kind. Wrap into a single-element Vec (empty
-        // string → empty Vec). R2's modal collects a list and
-        // build_host's signature becomes Vec<String> directly.
-        let vec_field = |s: String| if s.is_empty() { Vec::new() } else { vec![s] };
         Host {
             alias,
             hostname: Some(hostname),
@@ -409,9 +398,9 @@ impl App {
             source_file: self.sshc_conf_path_or_blank(),
             tags: normalized_tags(&tags_csv),
             extra: extra_lines,
-            local_forward: vec_field(local_forward),
-            remote_forward: vec_field(remote_forward),
-            dynamic_forward: vec_field(dynamic_forward),
+            local_forward,
+            remote_forward,
+            dynamic_forward,
         }
     }
 
