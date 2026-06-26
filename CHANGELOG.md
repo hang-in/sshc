@@ -8,6 +8,70 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.11.0] — 2026-06-26
+
+Single-goal size recovery cycle. v0.10's G2 entry promised
+Linux/Windows artifact reductions of -600 to -800 KB from
+disabling `arboard`'s `image-data` feature, but cargo-dist
+came back with the opposite shape — every platform's artifact
+grew (Linux x64 by +164 KB). v0.11 corrects course by going
+after the *actual* top consumer measured with cargo bloat.
+
+The user-facing surface — keymap, forms, doctor checks — is
+unchanged.
+
+### Changed
+
+- **`env_logger` switched to `default-features = false`** (G1).
+  cargo bloat on v0.10.0 (macOS arm64 release) ranked the regex
+  family — `regex_automata` (264 KiB) + `regex_syntax` (169 KiB)
+  + `aho_corasick` (114 KiB) — as 547 KiB of `.text`, 26.7% of
+  the binary. The chain entered sshc transitively via
+  `env_logger 0.11 → env_filter → regex`.
+
+  sshc never used wildcard or regex patterns in RUST_LOG: every
+  `log::warn!` / `log::error!` call site sits under the `sshc::`
+  module prefix, and the README never documented a wildcard
+  shape. Turning `default-features` off drops `regex`,
+  `humantime`, and `auto-color`. `RUST_LOG=sshc=debug` still
+  parses (prefix matching is in the slim path); regex patterns
+  silently don't apply.
+
+  Measured deltas (this CHANGELOG entry quotes only measured
+  numbers, never predicted — see v0.10's R6 retrospective for
+  why):
+
+  **macOS arm64 release binary** (host machine):
+
+  | Phase | Bytes | Δ vs prior |
+  |---|---:|---:|
+  | v0.10.0 (master) | 3,982,280 | — |
+  | v0.11.0 (after env_logger default-off) | 2,727,504 | −1,254,776 (−31.5%) |
+
+  cargo-dist artifact (per-platform .tar.xz / .zip) deltas vs
+  v0.10.0 land at tag-push time — see GitHub Release notes for
+  the table. If they don't shrink, an erratum will follow.
+
+### Internal
+
+- env_logger / env_filter still ship as ~9 KiB each in the
+  slim path. The `log` facade and seven call sites are
+  unchanged.
+- No source code touched in v0.11. Single Cargo.toml line edit.
+
+### Out of scope (carried into v0.12+)
+
+- Further size recovery candidates (`toml_edit` 165 KiB,
+  `ureq` 118 KiB, `nucleo_matcher` 69 KiB) — only consider if
+  user feedback prioritises additional binary slimming over
+  feature work.
+- Sort axis state persistence (v0.10 G5 carryover).
+- IdentityFile multi-value via the v0.10 ForwardingListModal
+  pattern.
+- Forwarding list reorder (↑/↓).
+- doctor: `SSHC_NO_OSC52` + Wayland-no-display combination
+  sanity.
+
 ## [0.10.0] — 2026-06-26
 
 Surface-polish round on top of v0.9. Five goals, all delivered;
