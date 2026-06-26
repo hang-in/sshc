@@ -3,9 +3,11 @@
 *.swo
 .DS_Store
 
-# Internal dev docs (not shipped to GitHub UI)
-BRIEF_*.md
-PLAN_V*.md
+# Internal dev docs that live in the working root while a cycle is
+# active. `/` anchors the pattern so only the repo root is ignored —
+# completed-cycle copies under `docs/archive/briefs/` stay tracked.
+/BRIEF_*.md
+/PLAN_V*.md
 DEBUG_PLAN.md
 docs/REFACTOR_NOTES.md
 
