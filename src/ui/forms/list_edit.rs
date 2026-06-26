@@ -294,7 +294,9 @@ impl ListEditModal {
             ),
             (true, _) => " Enter save • Esc cancel edit".into(),
             (false, true) => " Enter new entry • Esc done".into(),
-            (false, false) => " Enter edit • d delete • ↑/↓ move • Esc done".into(),
+            (false, false) => {
+                " Enter edit • d delete • ↑/↓ move • Shift+↑/↓ reorder • Esc done".into()
+            }
         };
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
@@ -383,7 +385,26 @@ impl ListEditModal {
         } else {
             // Browse mode.
             self.error = None;
+            let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+            let on_existing = self.selected < self.entries.len();
             match key.code {
+                // v0.12 G2: Shift+↑/↓ reorders the selected entry by
+                // one slot. OpenSSH treats `IdentityFile` /
+                // `LocalForward` ordering as meaningful, so power
+                // users with several entries can move them around
+                // without delete + re-add. Top entry Shift+Up,
+                // bottom entry Shift+Down, and the "+ add" row are
+                // no-ops.
+                KeyCode::Up if shift && on_existing && self.selected > 0 => {
+                    self.entries.swap(self.selected, self.selected - 1);
+                    self.selected -= 1;
+                    ListOutcome::Stay
+                }
+                KeyCode::Down if shift && on_existing && self.selected + 1 < self.entries.len() => {
+                    self.entries.swap(self.selected, self.selected + 1);
+                    self.selected += 1;
+                    ListOutcome::Stay
+                }
                 KeyCode::Up if self.selected > 0 => {
                     self.selected -= 1;
                     ListOutcome::Stay
@@ -449,6 +470,52 @@ mod tests {
         assert!(m.error.is_some());
         // Still editing so the user can fix the value.
         assert!(m.editing.is_some());
+    }
+
+    #[test]
+    fn reorder_middle_entry_down_swaps_with_next() {
+        let mut m = ListEditModal::new(
+            ListKind::Forwarding(ForwardingKind::Local),
+            vec!["a".into(), "b".into(), "c".into()],
+        );
+        m.selected = 1; // "b"
+        let ev = KeyEvent::new(KeyCode::Down, KeyModifiers::SHIFT);
+        let out = m.handle_key(ev);
+        assert_eq!(out, ListOutcome::Stay);
+        assert_eq!(m.entries(), &["a".to_string(), "c".into(), "b".into()]);
+        // Cursor follows the moved entry.
+        assert_eq!(m.selected, 2);
+    }
+
+    #[test]
+    fn reorder_top_entry_up_is_noop() {
+        let mut m = ListEditModal::new(
+            ListKind::Forwarding(ForwardingKind::Local),
+            vec!["a".into(), "b".into()],
+        );
+        m.selected = 0;
+        let before = m.entries().to_vec();
+        let ev = KeyEvent::new(KeyCode::Up, KeyModifiers::SHIFT);
+        m.handle_key(ev);
+        assert_eq!(m.entries(), &before[..]);
+        assert_eq!(m.selected, 0);
+    }
+
+    #[test]
+    fn reorder_on_add_row_leaves_entries_unchanged() {
+        // On the "+ add" pseudo-row, Shift is ignored and the key
+        // falls through to plain ↑ navigation. Entries Vec must NOT
+        // shift — only the cursor moves.
+        let mut m = ListEditModal::new(
+            ListKind::Forwarding(ForwardingKind::Local),
+            vec!["a".into(), "b".into()],
+        );
+        m.selected = 2; // the "+ add" pseudo-row
+        let ev = KeyEvent::new(KeyCode::Up, KeyModifiers::SHIFT);
+        m.handle_key(ev);
+        assert_eq!(m.entries(), &["a".to_string(), "b".into()]);
+        // Cursor moved up one slot (normal nav) but no swap happened.
+        assert_eq!(m.selected, 1);
     }
 
     #[test]
