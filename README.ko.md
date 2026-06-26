@@ -90,19 +90,21 @@ sshc
 | g | TCP reachability 체크 — 해석된 hostname:port로 TCP 연결만 시도해 도달성/지연을 알려줌 |
 | e | 해당 호스트 줄에서 `$EDITOR` 열기 |
 | M | 외부(`~/.ssh/config`) 호스트를 `sshc.conf`로 끌어오기 (원본 엔트리는 그대로 두므로 중복 `ssh -G` 매치가 싫다면 사용자가 직접 삭제) |
-| S | 호스트 목록 정렬축을 순환 (별칭 → 최근접속 → 도달성) |
+| S | 호스트 목록 정렬축을 순환 (별칭 → 최근접속 → 도달성; v0.12부터 state.toml에 저장돼 다음 세션에도 유지) |
 | i | `~/.ssh/config`에 Include 줄 주입 |
 | ? | 도움말 모달 |
 | q, Esc | 종료 / 취소 |
 
 폼 안에서는: Tab/Shift+Tab으로 필드 이동, Enter로 제출, Esc로 취소,
-Ctrl+U로 현재 필드 비우기. v0.9에서는 Tags와 Options 사이에 별도
+Ctrl+U로 현재 필드 비우기. v0.9에서 Tags와 Options 사이에 별도
 `Forwarding` 섹션이 생겨 `LocalForward` / `RemoteForward` /
-`DynamicForward`를 typed 필드로 직접 입력할 수 있습니다. v0.10부터
-forwarding 세 필드는 *list editor*로 동작 — 해당 행에서 Enter를
-누르면 작은 list modal이 열려 항목을 하나씩 추가·수정·삭제할 수
-있고, OpenSSH가 허용하는 directive 다중 등록을 그대로 round-trip
-보존합니다.
+`DynamicForward`를 typed 필드로 입력할 수 있게 됐고, v0.10에서
+forwarding 세 필드가 *list editor*로 동작하게 바뀌었습니다. v0.12는
+같은 모달을 `IdentityFile` 행에도 적용 — OpenSSH가 호스트당 여러 키를
+순서대로 시도하는 방식을 그대로 표현 — 하고, 모달 안에서 `Shift+↑/↓`로
+항목 순서를 바꿀 수 있습니다. v0.7.1의 `~/.ssh/*` 후보 키 ↑/↓ picker는
+모달의 edit 모드 안으로 이동했습니다 (편집 중 ↑/↓이 discovered
+candidates 사이를 사이클).
 
 ## 설치
 
@@ -117,7 +119,7 @@ brew install hang-in/tap/sshc
 ### 소스에서 cargo install
 
 ```sh
-cargo install --git https://github.com/hang-in/sshc --tag v0.11.0
+cargo install --git https://github.com/hang-in/sshc --tag v0.12.0
 ```
 
 ### 소스 빌드

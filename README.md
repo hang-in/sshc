@@ -89,7 +89,7 @@ connected hosts float to the top of the list, so the common case is
 | g | TCP reachability probe — connects to the resolved hostname:port, reports latency or error |
 | e | open `$EDITOR` at the host's line |
 | M | promote external host into `sshc.conf` (original `~/.ssh/config` entry left intact — delete manually if you don't want duplicate `ssh -G` matches) |
-| S | cycle the host list sort axis (alias → recent → reachability) |
+| S | cycle the host list sort axis (alias → recent → reachability; v0.12 persists the chosen axis in state.toml) |
 | i | inject `Include` line into `~/.ssh/config` |
 | ? | help modal |
 | q, Esc | quit / cancel |
@@ -97,11 +97,15 @@ connected hosts float to the top of the list, so the common case is
 Inside a form: Tab/Shift+Tab move fields, Enter submits, Esc cancels,
 Ctrl+U clears the active field. v0.9 added typed `LocalForward`,
 `RemoteForward`, and `DynamicForward` rows in a `Forwarding`
-section between Tags and the freeform `Options` field. v0.10 makes
+section between Tags and the freeform `Options` field. v0.10 made
 those three fields *list editors* — Enter on the row opens a
 small list modal where you can add, edit, or delete each entry
-one line at a time; ssh allows multiple of the same directive
-per host and sshc now round-trips that faithfully.
+one line at a time. v0.12 extends the same modal to the
+`IdentityFile` row (OpenSSH lets a host carry multiple keys and
+tries them in order) and adds `Shift+↑/↓` reorder so declaration
+order is editable inside the modal — the v0.7.1 candidate picker
+that used to cycle `~/.ssh/*` keys now lives in the modal's edit
+mode (↑/↓ during edit picks from discovered candidates).
 
 ## Installation
 
@@ -116,7 +120,7 @@ brew install hang-in/tap/sshc
 ### Cargo from git
 
 ```sh
-cargo install --git https://github.com/hang-in/sshc --tag v0.11.0
+cargo install --git https://github.com/hang-in/sshc --tag v0.12.0
 ```
 
 ### From source

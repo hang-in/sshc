@@ -8,6 +8,107 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.12.0] — 2026-06-26
+
+UX round on top of v0.11's size win. Three goals; all delivered.
+The v0.10 `ForwardingListModal` was extracted into a reusable
+`ListEditModal` and the IdentityFile row finally joins the
+forwarding triple as a multi-entry list editor. Sort axis
+persistence closes a v0.10 G5 regression where every fresh
+`sshc` started on AliasAlpha.
+
+### Added
+
+- **IdentityFile multi-value with the same list-modal UX as
+  forwarding** (G1). OpenSSH lets a host carry several
+  `IdentityFile` lines and tries them in order; v0.11 and
+  earlier kept only the last typed entry (`Option<PathBuf>`)
+  even though the parser saw every line. v0.12 promotes
+  `Host::identity_file` to `Vec<PathBuf>` end-to-end:
+  - Parser pushes per occurrence; serializer emits one
+    `IdentityFile <path>` line per entry in declaration order.
+  - The form's IdentityFile row is now a summary cell; Enter
+    opens a `ListEditModal` with kind `IdentityFile { candidates }`
+    where `candidates` is the `~/.ssh/*` private-key path Vec
+    the form discovered up-front.
+  - The v0.7.1 `↑/↓` candidate picker moved INSIDE the modal's
+    edit mode — same shortcut, just one level deeper so the
+    multi-entry case has a single home.
+  - Per-entry validation (the v0.7.2 shell-metacharacter
+    forbid list + Windows backslash exception) moved to the
+    modal so the form-level guard `HostForm::validate` no
+    longer needs an IdentityFile branch.
+- **`Shift+↑/↓` reorder inside `ListEditModal`** (G2). Power
+  users with several forwarding or IdentityFile entries can
+  now move them up/down without delete + re-add. OpenSSH treats
+  declaration order as meaningful (keys tried in order,
+  forwardings opened in order), and v0.10 G1's modal only
+  supported add/edit/delete. v0.12 closes the gap. Top entry
+  `Shift+↑` and bottom entry `Shift+↓` are guarded no-ops; on
+  the "+ add" pseudo-row Shift is ignored and the key falls
+  through to plain navigation.
+- **Sort axis persistence in `state.toml`** (G3). v0.10 G5's
+  `S` shortcut was session-only; every fresh `sshc` re-started
+  on `AliasAlpha`. v0.12 adds a `sort_axis` field to
+  `MemorySection`. `App::new` loads it; `App::cycle_sort_axis`
+  writes it back (best-effort `state::save` — failures don't
+  surface a sticky error because the cosmetic preference
+  doesn't merit one). `#[serde(default)]` lets pre-v0.12
+  state.toml files load with `Alias` — no migration needed.
+
+### Changed
+
+- `ui::forms::forwarding_list` → `ui::forms::list_edit`. Type
+  rename `ForwardingListModal` → `ListEditModal`. New
+  `ListKind` enum carries the per-kind title / validate /
+  reject-hint / candidate set so the modal stays one type as
+  new list kinds land. The R1 refactor was pure (every v0.10
+  forwarding test passed verbatim) and isolates the surface
+  area changes that R3 introduced.
+- `FormPayload::Host::identity_file: String` → `Vec<String>`.
+  `app::forms::build_host` signature follows; the v0.11 single
+  `Option<PathBuf>` wrap shim is gone.
+- README + README.ko: keymap notes for `S` persistence and
+  IdentityFile list modal.
+
+### Internal
+
+- `MemorySection::sort_axis: SortAxisPersisted` lives in
+  `state::schema` (no UI deps — R-G6). Two pure conversion
+  functions (`SortAxis::from_persisted` / `to_persisted`) live
+  in `app::mod` so the boundary holds in both directions.
+- Round-trip test:
+  `test_round_trip_multi_identity_file_preserves_order` —
+  3 IdentityFile lines round-trip through serializer + parser
+  with order intact.
+- New `ListEditModal` tests cover IdentityFile validate
+  (positive + rejection), candidate cycle in edit mode, and
+  the forwarding-edit-mode arrow no-op (regression guard).
+- Reorder tests cover the swap + cursor follow, the top-entry
+  no-op, and the "+ add" row fall-through.
+- Sort axis persistence tests cover load on new and round-
+  trip through three cycles.
+
+### Migration
+
+- v0.12-written sshc.conf files with *multiple* `IdentityFile`
+  lines on a host: if you roll back to v0.11 (or earlier) and
+  re-save the host, v0.11 keeps only the last typed entry
+  (the same trade-off v0.10 G1 introduced for the forwarding
+  triple). v0.12 reads its own format and v0.11's identically.
+- state.toml: no migration. `sort_axis` defaults via
+  `#[serde(default)]` on missing key.
+
+### Out of scope (carried into v0.13+)
+
+- Further size recovery candidates (`toml_edit` 165 KiB,
+  `ureq` 118 KiB).
+- Forwarding entries on the preview panel.
+- doctor: variable-substituted `ProxyCommand` sanity
+  (`%h`/`%p` expansion).
+- doctor: `SSHC_NO_OSC52` + Wayland-no-display hint.
+- K/J keys as reorder alias.
+
 ## [0.11.0] — 2026-06-26
 
 Single-goal size recovery cycle. v0.10's G2 entry promised
