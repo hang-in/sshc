@@ -237,7 +237,7 @@ mod tests {
             hostname: Some(format!("{}.example.com", alias)),
             user: Some("deploy".to_string()),
             port: Some(22),
-            identity_file: None,
+            identity_file: Vec::new(),
             line_start: 1,
             source_file: std::path::PathBuf::from("/test/config"),
             tags: Vec::new(),

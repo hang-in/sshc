@@ -25,11 +25,13 @@ pub fn render_preview(host: &Host, area: Rect, f: &mut Frame) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let identity = host
-        .identity_file
-        .as_ref()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "—".into());
+    // v0.12 G1: identity_file is now a Vec. Show the first entry or
+    // "<n>: <first> +N more" for the multi case; empty Vec → em-dash.
+    let identity = match host.identity_file.as_slice() {
+        [] => "—".to_string(),
+        [single] => single.display().to_string(),
+        [first, rest @ ..] => format!("{} (+{} more)", first.display(), rest.len()),
+    };
     let port = host
         .port
         .map(|p| p.to_string())
@@ -86,7 +88,7 @@ mod tests {
             hostname: Some(format!("{alias}.example.com")),
             user: Some("deploy".into()),
             port: Some(22),
-            identity_file: Some(PathBuf::from("/home/u/.ssh/id_ed25519")),
+            identity_file: vec![PathBuf::from("/home/u/.ssh/id_ed25519")],
             line_start: 1,
             source_file: PathBuf::from("/tmp/sshc.conf"),
             tags: vec!["prod".into(), "api".into()],
@@ -119,7 +121,7 @@ mod tests {
         h.hostname = None;
         h.user = None;
         h.port = None;
-        h.identity_file = None;
+        h.identity_file.clear();
         h.tags.clear();
         h.extra.clear();
         let _ = render_with(&h, 36, 12);

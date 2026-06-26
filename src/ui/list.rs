@@ -265,7 +265,7 @@ mod tests {
             hostname: Some("h".into()),
             user: Some("u".into()),
             port: Some(22),
-            identity_file: None,
+            identity_file: Vec::new(),
             line_start: 1,
             source_file: PathBuf::from(path),
             tags: tags.into_iter().map(String::from).collect(),

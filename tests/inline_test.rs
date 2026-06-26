@@ -12,7 +12,7 @@ fn host(alias: &str, hostname: &str) -> Host {
         hostname: Some(hostname.to_string()),
         user: Some("deploy".to_string()),
         port: Some(22),
-        identity_file: None,
+        identity_file: Vec::new(),
         line_start: 1,
         source_file: PathBuf::from("/tmp/fixture-config"),
         tags: Vec::new(),

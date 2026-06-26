@@ -911,7 +911,7 @@ mod proxy_command_tests {
             hostname: Some(format!("{alias}.example.com")),
             user: None,
             port: None,
-            identity_file: None,
+            identity_file: Vec::new(),
             line_start: 1,
             source_file: PathBuf::from("/test/config"),
             tags: Vec::new(),

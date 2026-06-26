@@ -11,7 +11,7 @@ fn make_host(hostname: &str, port: u16) -> Host {
         hostname: Some(hostname.to_string()),
         user: None,
         port: Some(port),
-        identity_file: None,
+        identity_file: Vec::new(),
         line_start: 1,
         source_file: PathBuf::from("/dev/null"),
         tags: Vec::new(),

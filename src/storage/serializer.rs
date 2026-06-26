@@ -27,7 +27,11 @@ pub fn host_blocks_to_text(hosts: &[Host]) -> String {
         if let Some(p) = host.port {
             out.push_str(&format!("    Port {}\n", p));
         }
-        if let Some(ref id) = host.identity_file {
+        // v0.12 G1: emit one line per IdentityFile entry. OpenSSH
+        // tries them in declaration order; preserving that order is
+        // the contract that lets round-trips re-write the file
+        // faithfully.
+        for id in &host.identity_file {
             out.push_str(&format!("    IdentityFile {}\n", id.display()));
         }
         // v0.10 G1: emit one line per typed Forwarding entry. Same
@@ -62,7 +66,7 @@ mod tests {
             hostname: Some("1.2.3.4".to_string()),
             user: Some("user".to_string()),
             port: Some(22),
-            identity_file: Some(PathBuf::from("~/.ssh/id_rsa")),
+            identity_file: vec![PathBuf::from("~/.ssh/id_rsa")],
             line_start: 0,
             source_file: PathBuf::new(),
             tags: tags.into_iter().map(String::from).collect(),
@@ -96,6 +100,38 @@ mod tests {
         assert_eq!(h.local_forward, vec!["8080 localhost:80".to_string()]);
         assert_eq!(h.remote_forward, vec!["9090 127.0.0.1:9090".to_string()]);
         assert_eq!(h.dynamic_forward, vec!["1080".to_string()]);
+    }
+
+    #[test]
+    fn test_round_trip_multi_identity_file_preserves_order() {
+        // v0.12 G1: multiple IdentityFile lines on a single host
+        // survive a serialize-then-parse cycle in declaration order.
+        use crate::config::parser::parse_config;
+        use assert_fs::fixture::{FileWriteStr, PathChild};
+        let temp = assert_fs::TempDir::new().unwrap();
+        let path = temp.child("sshc.conf");
+
+        let mut host = h("multi-id", vec![]);
+        host.identity_file = vec![
+            PathBuf::from("/home/u/.ssh/id_ed25519"),
+            PathBuf::from("/home/u/.ssh/id_rsa"),
+            PathBuf::from("/home/u/.ssh/id_corp"),
+        ];
+        path.write_str(&host_blocks_to_text(&[host])).unwrap();
+
+        let parsed = parse_config(path.path());
+        let h = parsed
+            .iter()
+            .find(|h| h.alias == "multi-id")
+            .expect("expected multi-id host");
+        assert_eq!(
+            h.identity_file,
+            vec![
+                PathBuf::from("/home/u/.ssh/id_ed25519"),
+                PathBuf::from("/home/u/.ssh/id_rsa"),
+                PathBuf::from("/home/u/.ssh/id_corp"),
+            ]
+        );
     }
 
     #[test]

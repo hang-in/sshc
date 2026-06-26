@@ -120,7 +120,7 @@ mod tests {
             hostname: None,
             user: None,
             port: None,
-            identity_file: None,
+            identity_file: Vec::new(),
             line_start: 0,
             source_file: PathBuf::new(),
             tags: vec![],

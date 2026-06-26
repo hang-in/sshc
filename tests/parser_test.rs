@@ -21,7 +21,7 @@ fn test_parse_basic() {
     assert_eq!(web.hostname.as_deref(), Some("web.example.com"));
     assert_eq!(web.user.as_deref(), Some("deploy"));
     assert_eq!(web.port, Some(2222));
-    assert!(web.identity_file.is_some());
+    assert!(!web.identity_file.is_empty());
 
     let db = &hosts[1];
     assert_eq!(db.alias, "db");

@@ -52,7 +52,7 @@ struct BlockState {
     hostname: Option<String>,
     user: Option<String>,
     port: Option<u16>,
-    identity_file: Option<PathBuf>,
+    identity_file: Vec<PathBuf>,
     line_start: usize,
     tags: Vec<String>,
     extra: Vec<String>,
@@ -68,7 +68,7 @@ impl BlockState {
             hostname: None,
             user: None,
             port: None,
-            identity_file: None,
+            identity_file: Vec::new(),
             line_start: 0,
             tags: Vec::new(),
             extra: Vec::new(),
@@ -83,7 +83,7 @@ impl BlockState {
         self.hostname = None;
         self.user = None;
         self.port = None;
-        self.identity_file = None;
+        self.identity_file.clear();
         self.line_start = line_start;
         self.tags = Vec::new();
         self.extra = Vec::new();
@@ -202,7 +202,11 @@ fn parse_config_content(
                 block.port = value.parse::<u16>().ok();
             }
             "identityfile" if in_host_block => {
-                block.identity_file = Some(resolve_path(&value, base_dir));
+                // v0.12 G1: push per occurrence — OpenSSH allows
+                // multiple IdentityFile lines per host and tries
+                // them in order. v0.11 and earlier kept only the
+                // last one (Option<PathBuf>).
+                block.identity_file.push(resolve_path(&value, base_dir));
             }
             // v0.10 G1: typed Forwarding fields. OpenSSH allows the
             // same directive multiple times per host; collect every

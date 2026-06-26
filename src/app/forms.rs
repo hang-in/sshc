@@ -80,9 +80,12 @@ impl App {
             return;
         }
         let port_str = host.port.map(|p| p.to_string()).unwrap_or_default();
+        // R2 transitional: HostForm holds one path string per
+        // IdentityFile row. Surface the first entry; R3 promotes
+        // the field to a list modal like forwarding.
         let identity = host
             .identity_file
-            .as_ref()
+            .first()
             .map(|p| p.display().to_string())
             .unwrap_or_default();
         let tags_csv = host.tags.join(", ");
@@ -170,9 +173,12 @@ impl App {
             return;
         }
         let port_str = host.port.map(|p| p.to_string()).unwrap_or_default();
+        // R2 transitional: HostForm holds one path string per
+        // IdentityFile row. Surface the first entry; R3 promotes
+        // the field to a list modal like forwarding.
         let identity = host
             .identity_file
-            .as_ref()
+            .first()
             .map(|p| p.display().to_string())
             .unwrap_or_default();
         let tags_csv = host.tags.join(", ");
@@ -376,10 +382,13 @@ impl App {
         } else {
             port.parse().ok()
         };
-        let identity = if identity_file.is_empty() {
-            None
+        // R2 transitional: HostForm still passes one String for
+        // IdentityFile (until R3 promotes the row to a list).
+        // Empty input → empty Vec; non-empty → single-entry Vec.
+        let identity: Vec<std::path::PathBuf> = if identity_file.is_empty() {
+            Vec::new()
         } else {
-            Some(std::path::PathBuf::from(identity_file))
+            vec![std::path::PathBuf::from(identity_file)]
         };
         let user_field = if user.is_empty() { None } else { Some(user) };
         let extra_lines: Vec<String> = extra
@@ -415,7 +424,7 @@ impl App {
             return Ok(());
         }
         let alias_for_msg = host.alias.clone();
-        let identity_missing = host.identity_file.is_none();
+        let identity_missing = host.identity_file.is_empty();
         self.hosts.push(host);
         self.probe_states.push(ProbeState::Unknown);
         self.persist_sshc_conf()?;
@@ -468,7 +477,7 @@ impl App {
 
     fn apply_modify(&mut self, alias: &str, new_host: Host) -> Result<(), AppError> {
         if let Some(pos) = self.hosts.iter().position(|h| h.alias == alias) {
-            let identity_missing = new_host.identity_file.is_none();
+            let identity_missing = new_host.identity_file.is_empty();
             self.hosts[pos] = new_host;
             self.persist_sshc_conf()?;
             self.apply_filter();

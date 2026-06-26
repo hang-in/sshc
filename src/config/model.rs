@@ -11,7 +11,11 @@ pub struct Host {
     pub hostname: Option<String>,
     pub user: Option<String>,
     pub port: Option<u16>,
-    pub identity_file: Option<PathBuf>,
+    /// v0.12 G1: list of `IdentityFile` paths. OpenSSH allows
+    /// multiple per host (tried in order); v0.10 G1 promoted the
+    /// three Forwarding kinds to Vec for the same reason, this
+    /// closes the symmetric gap. Empty Vec ↔ no IdentityFile.
+    pub identity_file: Vec<PathBuf>,
     pub line_start: usize,
     pub source_file: PathBuf,
     /// Tags parsed from a `# @tags: a, b` comment immediately above
@@ -99,7 +103,7 @@ mod tests {
             hostname: hostname.map(|h| h.to_string()),
             user: Some("deploy".to_string()),
             port: Some(22),
-            identity_file: None,
+            identity_file: Vec::new(),
             line_start: 1,
             source_file: PathBuf::from("/test/config"),
             tags: Vec::new(),

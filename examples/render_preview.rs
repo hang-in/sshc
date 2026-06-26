@@ -33,7 +33,7 @@ fn fake_host(
         hostname: Some(hostname.to_string()),
         user: user.map(|s| s.to_string()),
         port: Some(port),
-        identity_file: None,
+        identity_file: Vec::new(),
         line_start: 1,
         source_file: PathBuf::from(source),
         tags: tags.iter().map(|s| s.to_string()).collect(),
