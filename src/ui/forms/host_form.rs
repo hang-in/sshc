@@ -1,5 +1,5 @@
 use crate::config::tags::normalize_tag;
-use crate::ui::forms::forwarding_list::{ForwardingKind, ForwardingListModal, ListOutcome};
+use crate::ui::forms::list_edit::{ForwardingKind, ListEditModal, ListKind, ListOutcome};
 use crate::ui::modal::{FormOutcome, FormPayload, FormState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -42,7 +42,7 @@ pub struct HostForm {
     /// Active child modal when the user is editing one of the three
     /// forwarding lists. Rendering + key dispatch route through this
     /// when set.
-    forwarding_modal: Option<ForwardingListModal>,
+    forwarding_modal: Option<ListEditModal>,
     /// Which forwarding kind the open modal is editing — used to
     /// route the result back into the right Vec on close.
     forwarding_modal_kind: Option<ForwardingKind>,
@@ -157,7 +157,7 @@ impl HostForm {
 
     fn open_forwarding_modal(&mut self, kind: ForwardingKind) {
         let entries = self.entries_for(kind).clone();
-        self.forwarding_modal = Some(ForwardingListModal::new(kind, entries));
+        self.forwarding_modal = Some(ListEditModal::new(ListKind::Forwarding(kind), entries));
         self.forwarding_modal_kind = Some(kind);
     }
 

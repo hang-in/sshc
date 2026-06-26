@@ -1,9 +1,14 @@
-//! v0.10 G1: a tiny `FormState` impl for editing a list of one-kind
-//! Forwarding entries (LocalForward / RemoteForward / DynamicForward).
-//! Opened by the parent `HostForm` when the user presses Enter on
-//! one of the three forwarding fields. The parent reads the result
-//! back through `entries()` once `handle_key` reports Cancel or
-//! Submit-with-an-empty-payload.
+//! v0.10 G1: a tiny `FormState` impl for editing a list of entries
+//! that belong to one OpenSSH directive kind. Opened by the parent
+//! `HostForm` when the user presses Enter on a list-shaped field row.
+//! The parent reads the result back through `entries()` once
+//! `handle_key` reports `Done`/`Cancel`.
+//!
+//! v0.12 G1: renamed from `ForwardingListModal` to `ListEditModal`
+//! and the per-kind logic moved into a `ListKind` enum so the modal
+//! can host IdentityFile (R3) on top of the original three forwarding
+//! kinds. R1 (this commit) only wraps `ForwardingKind` under
+//! `ListKind::Forwarding(_)`; behaviour is unchanged.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -38,6 +43,42 @@ impl ForwardingKind {
         match self {
             ForwardingKind::Local | ForwardingKind::Remote => looks_like_lr(value),
             ForwardingKind::Dynamic => looks_like_dyn(value),
+        }
+    }
+}
+
+/// v0.12 G1: which kind of list this modal is editing. R1 only carries
+/// the `Forwarding(_)` variant; R3 adds `IdentityFile { candidates }`.
+/// Driving title/validate through the enum lets the modal stay one
+/// type as new list kinds land.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ListKind {
+    Forwarding(ForwardingKind),
+}
+
+impl ListKind {
+    pub fn title(&self) -> &'static str {
+        match self {
+            ListKind::Forwarding(k) => k.title(),
+        }
+    }
+
+    pub fn validate(&self, value: &str) -> bool {
+        match self {
+            ListKind::Forwarding(k) => k.validate(value),
+        }
+    }
+
+    /// Error string shown in the modal footer when a value is
+    /// rejected on Enter. Mirrors the v0.10 messages so existing
+    /// tests pass unchanged.
+    pub fn reject_hint(&self) -> &'static str {
+        match self {
+            ListKind::Forwarding(ForwardingKind::Local)
+            | ListKind::Forwarding(ForwardingKind::Remote) => {
+                "expected `[bind:]port host:hostport`"
+            }
+            ListKind::Forwarding(ForwardingKind::Dynamic) => "expected `[bind:]port`",
         }
     }
 }
@@ -85,8 +126,8 @@ pub enum ListOutcome {
     Cancel,
 }
 
-pub struct ForwardingListModal {
-    kind: ForwardingKind,
+pub struct ListEditModal {
+    kind: ListKind,
     entries: Vec<String>,
     /// Cursor row. `entries.len()` is the "+ add" pseudo-row, allowed
     /// so the user can append a new entry from anywhere in the list.
@@ -100,8 +141,8 @@ pub struct ForwardingListModal {
     error: Option<String>,
 }
 
-impl ForwardingListModal {
-    pub fn new(kind: ForwardingKind, entries: Vec<String>) -> Self {
+impl ListEditModal {
+    pub fn new(kind: ListKind, entries: Vec<String>) -> Self {
         Self {
             kind,
             entries,
@@ -211,15 +252,7 @@ impl ForwardingListModal {
                         return ListOutcome::Stay;
                     }
                     if !self.kind.validate(&value) {
-                        self.error = Some(
-                            match self.kind {
-                                ForwardingKind::Local | ForwardingKind::Remote => {
-                                    "expected `[bind:]port host:hostport`"
-                                }
-                                ForwardingKind::Dynamic => "expected `[bind:]port`",
-                            }
-                            .to_string(),
-                        );
+                        self.error = Some(self.kind.reject_hint().to_string());
                         return ListOutcome::Stay;
                     }
                     if self.selected == self.entries.len() {
@@ -296,7 +329,7 @@ mod tests {
 
     #[test]
     fn add_entry_via_enter_then_type_then_enter() {
-        let mut m = ForwardingListModal::new(ForwardingKind::Local, Vec::new());
+        let mut m = ListEditModal::new(ListKind::Forwarding(ForwardingKind::Local), Vec::new());
         // selected == 0 == entries.len() (the "+ add" row)
         m.handle_key(ke(KeyCode::Enter));
         for c in "8080 localhost:80".chars() {
@@ -309,7 +342,7 @@ mod tests {
 
     #[test]
     fn validation_rejects_garbage() {
-        let mut m = ForwardingListModal::new(ForwardingKind::Local, Vec::new());
+        let mut m = ListEditModal::new(ListKind::Forwarding(ForwardingKind::Local), Vec::new());
         m.handle_key(ke(KeyCode::Enter));
         for c in "garbage".chars() {
             m.handle_key(ke(KeyCode::Char(c)));
@@ -323,8 +356,8 @@ mod tests {
 
     #[test]
     fn delete_entry_with_d() {
-        let mut m = ForwardingListModal::new(
-            ForwardingKind::Local,
+        let mut m = ListEditModal::new(
+            ListKind::Forwarding(ForwardingKind::Local),
             vec!["8080 a:1".into(), "9090 b:2".into()],
         );
         m.selected = 0;
@@ -334,14 +367,20 @@ mod tests {
 
     #[test]
     fn esc_in_browse_mode_closes() {
-        let mut m = ForwardingListModal::new(ForwardingKind::Local, vec!["8080 a:1".into()]);
+        let mut m = ListEditModal::new(
+            ListKind::Forwarding(ForwardingKind::Local),
+            vec!["8080 a:1".into()],
+        );
         let out = m.handle_key(ke(KeyCode::Esc));
         assert_eq!(out, ListOutcome::Done);
     }
 
     #[test]
     fn esc_during_edit_keeps_existing_entry_intact() {
-        let mut m = ForwardingListModal::new(ForwardingKind::Local, vec!["8080 a:1".into()]);
+        let mut m = ListEditModal::new(
+            ListKind::Forwarding(ForwardingKind::Local),
+            vec!["8080 a:1".into()],
+        );
         m.selected = 0;
         m.handle_key(ke(KeyCode::Enter));
         m.handle_key(ke(KeyCode::Char('x')));
@@ -352,7 +391,10 @@ mod tests {
 
     #[test]
     fn empty_enter_on_existing_row_deletes_it() {
-        let mut m = ForwardingListModal::new(ForwardingKind::Local, vec!["8080 a:1".into()]);
+        let mut m = ListEditModal::new(
+            ListKind::Forwarding(ForwardingKind::Local),
+            vec!["8080 a:1".into()],
+        );
         m.selected = 0;
         m.handle_key(ke(KeyCode::Enter));
         // Clear the buffer
@@ -365,7 +407,7 @@ mod tests {
 
     #[test]
     fn dynamic_validation_accepts_bare_port_and_bind_port() {
-        let mut m = ForwardingListModal::new(ForwardingKind::Dynamic, Vec::new());
+        let mut m = ListEditModal::new(ListKind::Forwarding(ForwardingKind::Dynamic), Vec::new());
         m.handle_key(ke(KeyCode::Enter));
         for c in "1080".chars() {
             m.handle_key(ke(KeyCode::Char(c)));

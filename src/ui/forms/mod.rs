@@ -1,5 +1,5 @@
-pub mod forwarding_list;
 pub mod host_form;
+pub mod list_edit;
 pub mod tag_form;
 
 pub use host_form::HostForm;
