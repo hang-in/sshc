@@ -28,9 +28,6 @@ pub struct MemorySection {
     /// removal in v0.7.
     #[serde(default)]
     pub last_connected_alias: Option<String>,
-    /// Most-recent-first connection history, bounded to `RECENT_MAX`.
-    #[serde(default)]
-    pub recent: Vec<RecentEntry>,
     /// User-pinned hosts. Order-preserving (insertion order); the
     /// picker sorts these to the top regardless of fuzzy score.
     #[serde(default)]
@@ -40,8 +37,20 @@ pub struct MemorySection {
     /// press through `App::cycle_sort_axis`. `#[serde(default)]`
     /// means pre-v0.12 state.toml files load with the default
     /// (Alias), matching the v0.10 G5 starting axis.
+    ///
+    /// v0.13 G1: this scalar lives BEFORE `recent` because TOML
+    /// emit order requires all scalar fields to precede table-shaped
+    /// fields (and `recent` is `Vec<RecentEntry>` — an array of
+    /// tables). v0.12 placed `sort_axis` after `recent` and that
+    /// shape was fine on `toml = "0.8"` (preserve-order via
+    /// `toml_edit`); the v0.13 swap to `toml = "0.5"` enforces the
+    /// stricter spec.
     #[serde(default)]
     pub sort_axis: SortAxisPersisted,
+    /// Most-recent-first connection history, bounded to `RECENT_MAX`.
+    /// MUST stay last — array-of-tables emit comes after scalars.
+    #[serde(default)]
+    pub recent: Vec<RecentEntry>,
 }
 
 /// v0.12 G3: state.toml-side representation of the sort axis. The

@@ -19,7 +19,12 @@ dirs = "6"
 anyhow = "1"
 log = "0.4"
 env_logger = { version = "0.11", default-features = false }
-toml = "0.8"
+# v0.13 G1: stay on `toml` 0.5 — it predates the `toml_edit`
+# format-preserving backend that 0.8 pulled in by default. sshc
+# writes state.toml from scratch on every save so we don't need
+# format preservation, and `toml_edit` was the single biggest
+# transitive at 167 KiB in v0.12's cargo bloat output.
+toml = "0.5"
 serde = { version = "1", features = ["derive"] }
 # Sync HTTP client for `sshc --doctor`'s update-availability check.
 # v0.9 G7: switched off the default `tls` feature (rustls + webpki-
