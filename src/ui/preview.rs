@@ -47,17 +47,47 @@ pub fn render_preview(host: &Host, area: Rect, f: &mut Frame) {
         host.extra.join("; ")
     };
 
-    let lines = vec![
+    // v0.13 G2: summarise the typed Forwarding fields right under
+    // Identity. Lifecycle parity with v0.6 Extra — if every kind is
+    // empty, skip the section entirely (no row, no blank line).
+    let total_forwarding =
+        host.local_forward.len() + host.remote_forward.len() + host.dynamic_forward.len();
+    let forwarding_summary = format!(
+        "L:{} R:{} D:{}",
+        host.local_forward.len(),
+        host.remote_forward.len(),
+        host.dynamic_forward.len()
+    );
+    let forwarding_first = host
+        .local_forward
+        .first()
+        .or(host.remote_forward.first())
+        .or(host.dynamic_forward.first())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut lines = vec![
         kv_line("Alias", &host.alias),
         kv_line("HostName", host.hostname.as_deref().unwrap_or("—")),
         kv_line("User", host.user.as_deref().unwrap_or("—")),
         kv_line("Port", &port),
         kv_line("Identity", &identity),
-        Line::from(""),
-        kv_line("Tags", &tags),
-        Line::from(""),
-        kv_line("Extra", &extra),
     ];
+    if total_forwarding > 0 {
+        lines.push(kv_line("Forward", &forwarding_summary));
+        // Show the first entry across the three kinds so the
+        // preview surfaces the *content*, not just the count. The
+        // entry is shown without an extra label cell so it lines
+        // up under the Forward summary; wrap is on for long
+        // values.
+        lines.push(Line::from(Span::raw(format!(
+            "            {forwarding_first}"
+        ))));
+    }
+    lines.push(Line::from(""));
+    lines.push(kv_line("Tags", &tags));
+    lines.push(Line::from(""));
+    lines.push(kv_line("Extra", &extra));
 
     let para = Paragraph::new(lines).wrap(Wrap { trim: false });
     f.render_widget(para, inner);
@@ -125,6 +155,60 @@ mod tests {
         h.tags.clear();
         h.extra.clear();
         let _ = render_with(&h, 36, 12);
+    }
+
+    /// Walk every cell of the rendered TestBackend buffer and join it
+    /// into a single string per row. Useful for asserting that a
+    /// substring landed somewhere in the preview without caring
+    /// about its (x, y) coordinates.
+    fn render_text(term: &Terminal<TestBackend>) -> String {
+        let mut s = String::new();
+        let buf = term.backend().buffer();
+        for y in 0..buf.area().height {
+            for x in 0..buf.area().width {
+                s.push_str(buf[(x, y)].symbol());
+            }
+            s.push('\n');
+        }
+        s
+    }
+
+    #[test]
+    fn renders_with_multi_forwarding_shows_counts_and_first_entry() {
+        let mut h = make_host("api-fwd");
+        h.local_forward = vec!["8080 localhost:80".into(), "9090 db.internal:5432".into()];
+        h.remote_forward = vec!["9000 127.0.0.1:9000".into()];
+        let term = render_with(&h, 60, 16);
+        let txt = render_text(&term);
+        assert!(txt.contains("Forward"), "Forward row missing: {txt}");
+        assert!(txt.contains("L:2 R:1 D:0"), "counts wrong: {txt}");
+        assert!(
+            txt.contains("8080 localhost:80"),
+            "first entry missing: {txt}"
+        );
+    }
+
+    #[test]
+    fn renders_without_forwarding_omits_section() {
+        // No forwards → no `Forward:` row at all (no count of 0,
+        // no blank line gap). Matches the Identity → Tags → Extra
+        // flow that v0.12 shipped. (NB: substring "Forward" also
+        // shows up inside `ForwardAgent` lines in `Extra`; we check
+        // the label-form `Forward:` to disambiguate.)
+        let mut h = make_host("plain");
+        h.extra.clear(); // strip the ForwardAgent fixture entry
+        let term = render_with(&h, 60, 12);
+        let txt = render_text(&term);
+        assert!(
+            !txt.contains("Forward:"),
+            "Forward row should be absent for empty forwards: {txt}"
+        );
+        // And the L:0 R:0 D:0 string never lands when the section
+        // is omitted.
+        assert!(
+            !txt.contains("L:0 R:0 D:0"),
+            "empty counts should not be rendered: {txt}"
+        );
     }
 
     #[test]
