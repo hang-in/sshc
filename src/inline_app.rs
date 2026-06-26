@@ -242,9 +242,9 @@ mod tests {
             source_file: std::path::PathBuf::from("/test/config"),
             tags: Vec::new(),
             extra: Vec::new(),
-            local_forward: None,
-            remote_forward: None,
-            dynamic_forward: None,
+            local_forward: Vec::new(),
+            remote_forward: Vec::new(),
+            dynamic_forward: Vec::new(),
         }
     }
 

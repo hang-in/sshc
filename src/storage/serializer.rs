@@ -30,17 +30,16 @@ pub fn host_blocks_to_text(hosts: &[Host]) -> String {
         if let Some(ref id) = host.identity_file {
             out.push_str(&format!("    IdentityFile {}\n", id.display()));
         }
-        // v0.9 G5: emit typed Forwarding directives directly. They
-        // come BEFORE `extra` so the typed surface dominates the
-        // free-form one; duplicates pushed into `extra` by the
-        // parser still come out below.
-        if let Some(ref lf) = host.local_forward {
+        // v0.10 G1: emit one line per typed Forwarding entry. Same
+        // ordering across the three directive kinds: Local first,
+        // then Remote, then Dynamic.
+        for lf in &host.local_forward {
             out.push_str(&format!("    LocalForward {}\n", lf));
         }
-        if let Some(ref rf) = host.remote_forward {
+        for rf in &host.remote_forward {
             out.push_str(&format!("    RemoteForward {}\n", rf));
         }
-        if let Some(ref df) = host.dynamic_forward {
+        for df in &host.dynamic_forward {
             out.push_str(&format!("    DynamicForward {}\n", df));
         }
         for line in &host.extra {
@@ -68,9 +67,9 @@ mod tests {
             source_file: PathBuf::new(),
             tags: tags.into_iter().map(String::from).collect(),
             extra: Vec::new(),
-            local_forward: None,
-            remote_forward: None,
-            dynamic_forward: None,
+            local_forward: Vec::new(),
+            remote_forward: Vec::new(),
+            dynamic_forward: Vec::new(),
         }
     }
 
@@ -84,9 +83,9 @@ mod tests {
         let path = temp.child("sshc.conf");
 
         let mut host = h("fwd", vec![]);
-        host.local_forward = Some("8080 localhost:80".to_string());
-        host.remote_forward = Some("9090 127.0.0.1:9090".to_string());
-        host.dynamic_forward = Some("1080".to_string());
+        host.local_forward = vec!["8080 localhost:80".to_string()];
+        host.remote_forward = vec!["9090 127.0.0.1:9090".to_string()];
+        host.dynamic_forward = vec!["1080".to_string()];
         path.write_str(&host_blocks_to_text(&[host])).unwrap();
 
         let parsed = parse_config(path.path());
@@ -94,17 +93,47 @@ mod tests {
             .iter()
             .find(|h| h.alias == "fwd")
             .expect("expected fwd host in parsed config");
-        assert_eq!(h.local_forward.as_deref(), Some("8080 localhost:80"));
-        assert_eq!(h.remote_forward.as_deref(), Some("9090 127.0.0.1:9090"));
-        assert_eq!(h.dynamic_forward.as_deref(), Some("1080"));
+        assert_eq!(h.local_forward, vec!["8080 localhost:80".to_string()]);
+        assert_eq!(h.remote_forward, vec!["9090 127.0.0.1:9090".to_string()]);
+        assert_eq!(h.dynamic_forward, vec!["1080".to_string()]);
+    }
+
+    #[test]
+    fn test_round_trip_multi_forwarding_preserves_order() {
+        // v0.10 G1: multiple LocalForward / RemoteForward lines on a
+        // single host survive a serialize-then-parse cycle in
+        // declaration order.
+        use crate::config::parser::parse_config;
+        use assert_fs::fixture::{FileWriteStr, PathChild};
+        let temp = assert_fs::TempDir::new().unwrap();
+        let path = temp.child("sshc.conf");
+
+        let mut host = h("multi", vec![]);
+        host.local_forward = vec![
+            "8080 localhost:80".to_string(),
+            "9090 db.internal:5432".to_string(),
+            "9091 cache.internal:6379".to_string(),
+        ];
+        path.write_str(&host_blocks_to_text(&[host])).unwrap();
+
+        let parsed = parse_config(path.path());
+        let h = parsed.iter().find(|h| h.alias == "multi").unwrap();
+        assert_eq!(
+            h.local_forward,
+            vec![
+                "8080 localhost:80".to_string(),
+                "9090 db.internal:5432".to_string(),
+                "9091 cache.internal:6379".to_string(),
+            ]
+        );
     }
 
     #[test]
     fn test_serialize_emits_typed_forwarding_fields() {
         let mut host = h("fwd", vec![]);
-        host.local_forward = Some("8080 localhost:80".to_string());
-        host.remote_forward = Some("9000 127.0.0.1:9000".to_string());
-        host.dynamic_forward = Some("1080".to_string());
+        host.local_forward = vec!["8080 localhost:80".to_string()];
+        host.remote_forward = vec!["9000 127.0.0.1:9000".to_string()];
+        host.dynamic_forward = vec!["1080".to_string()];
         let text = host_blocks_to_text(&[host]);
         assert!(text.contains("    LocalForward 8080 localhost:80\n"));
         assert!(text.contains("    RemoteForward 9000 127.0.0.1:9000\n"));

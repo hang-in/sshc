@@ -24,14 +24,15 @@ pub struct Host {
     /// `ProxyJump`, `ForwardAgent`, and any directives not yet promoted
     /// to typed fields.
     pub extra: Vec<String>,
-    /// v0.9 G5: typed Forwarding directives. Each is a single value
-    /// (`port[:bind]:host:hostport` for Local/Remote, `port[:bind]`
-    /// for Dynamic). When a host uses multiple of the same kind, only
-    /// the last value parsed is kept here and round-tripped — extra
-    /// duplicates fall into `extra` so they're preserved verbatim.
-    pub local_forward: Option<String>,
-    pub remote_forward: Option<String>,
-    pub dynamic_forward: Option<String>,
+    /// v0.10 G1: typed Forwarding directives. OpenSSH allows the same
+    /// directive multiple times per host; each entry here is one such
+    /// value (`port[:bind]:host:hostport` for Local/Remote,
+    /// `port[:bind]` for Dynamic). The parser collects them in the
+    /// order they appear; the serializer emits one line per entry.
+    /// Empty Vec ↔ directive not set on this host.
+    pub local_forward: Vec<String>,
+    pub remote_forward: Vec<String>,
+    pub dynamic_forward: Vec<String>,
 }
 
 impl fmt::Display for Host {
@@ -103,9 +104,9 @@ mod tests {
             source_file: PathBuf::from("/test/config"),
             tags: Vec::new(),
             extra: Vec::new(),
-            local_forward: None,
-            remote_forward: None,
-            dynamic_forward: None,
+            local_forward: Vec::new(),
+            remote_forward: Vec::new(),
+            dynamic_forward: Vec::new(),
         }
     }
 

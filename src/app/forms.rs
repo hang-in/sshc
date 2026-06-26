@@ -87,9 +87,12 @@ impl App {
             .unwrap_or_default();
         let tags_csv = host.tags.join(", ");
         let extra_joined = host.extra.join("; ");
-        let local_forward = host.local_forward.clone().unwrap_or_default();
-        let remote_forward = host.remote_forward.clone().unwrap_or_default();
-        let dynamic_forward = host.dynamic_forward.clone().unwrap_or_default();
+        // R1 transitional: HostForm still takes a single String per
+        // forwarding field. Show the first entry; R2's
+        // ForwardingListModal replaces this with a summary cell.
+        let local_forward = host.local_forward.first().cloned().unwrap_or_default();
+        let remote_forward = host.remote_forward.first().cloned().unwrap_or_default();
+        let dynamic_forward = host.dynamic_forward.first().cloned().unwrap_or_default();
         let form = crate::ui::forms::HostForm::from_host(
             &host.alias,
             host.hostname.as_deref().unwrap_or(""),
@@ -177,9 +180,12 @@ impl App {
             .unwrap_or_default();
         let tags_csv = host.tags.join(", ");
         let extra_joined = host.extra.join("; ");
-        let local_forward = host.local_forward.clone().unwrap_or_default();
-        let remote_forward = host.remote_forward.clone().unwrap_or_default();
-        let dynamic_forward = host.dynamic_forward.clone().unwrap_or_default();
+        // R1 transitional: HostForm still takes a single String per
+        // forwarding field. Show the first entry; R2's
+        // ForwardingListModal replaces this with a summary cell.
+        let local_forward = host.local_forward.first().cloned().unwrap_or_default();
+        let remote_forward = host.remote_forward.first().cloned().unwrap_or_default();
+        let dynamic_forward = host.dynamic_forward.first().cloned().unwrap_or_default();
         let form = crate::ui::forms::HostForm::from_host(
             &host.alias,
             host.hostname.as_deref().unwrap_or(""),
@@ -388,7 +394,11 @@ impl App {
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
             .collect();
-        let opt_field = |s: String| if s.is_empty() { None } else { Some(s) };
+        // R1 transitional: the form still passes one String per
+        // forwarding kind. Wrap into a single-element Vec (empty
+        // string → empty Vec). R2's modal collects a list and
+        // build_host's signature becomes Vec<String> directly.
+        let vec_field = |s: String| if s.is_empty() { Vec::new() } else { vec![s] };
         Host {
             alias,
             hostname: Some(hostname),
@@ -399,9 +409,9 @@ impl App {
             source_file: self.sshc_conf_path_or_blank(),
             tags: normalized_tags(&tags_csv),
             extra: extra_lines,
-            local_forward: opt_field(local_forward),
-            remote_forward: opt_field(remote_forward),
-            dynamic_forward: opt_field(dynamic_forward),
+            local_forward: vec_field(local_forward),
+            remote_forward: vec_field(remote_forward),
+            dynamic_forward: vec_field(dynamic_forward),
         }
     }
 

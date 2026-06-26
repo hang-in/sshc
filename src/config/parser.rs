@@ -56,9 +56,9 @@ struct BlockState {
     line_start: usize,
     tags: Vec<String>,
     extra: Vec<String>,
-    local_forward: Option<String>,
-    remote_forward: Option<String>,
-    dynamic_forward: Option<String>,
+    local_forward: Vec<String>,
+    remote_forward: Vec<String>,
+    dynamic_forward: Vec<String>,
 }
 
 impl BlockState {
@@ -72,9 +72,9 @@ impl BlockState {
             line_start: 0,
             tags: Vec::new(),
             extra: Vec::new(),
-            local_forward: None,
-            remote_forward: None,
-            dynamic_forward: None,
+            local_forward: Vec::new(),
+            remote_forward: Vec::new(),
+            dynamic_forward: Vec::new(),
         }
     }
 
@@ -87,9 +87,9 @@ impl BlockState {
         self.line_start = line_start;
         self.tags = Vec::new();
         self.extra = Vec::new();
-        self.local_forward = None;
-        self.remote_forward = None;
-        self.dynamic_forward = None;
+        self.local_forward.clear();
+        self.remote_forward.clear();
+        self.dynamic_forward.clear();
     }
 
     fn is_active(&self) -> bool {
@@ -204,24 +204,19 @@ fn parse_config_content(
             "identityfile" if in_host_block => {
                 block.identity_file = Some(resolve_path(&value, base_dir));
             }
-            // v0.9 G5: typed Forwarding fields. Last value wins so a
-            // round-trip rewrite keeps the most recent directive; any
-            // earlier occurrence falls through to `extra` below to be
-            // preserved as a free-form line.
+            // v0.10 G1: typed Forwarding fields. OpenSSH allows the
+            // same directive multiple times per host; collect every
+            // occurrence in the order it appears so the round-trip
+            // rewrite emits the same lines back out. Earlier-v0.9
+            // last-wins-with-cascade behaviour is gone.
             "localforward" if in_host_block => {
-                if let Some(prev) = block.local_forward.replace(value.to_string()) {
-                    block.extra.push(format!("LocalForward {prev}"));
-                }
+                block.local_forward.push(value.to_string());
             }
             "remoteforward" if in_host_block => {
-                if let Some(prev) = block.remote_forward.replace(value.to_string()) {
-                    block.extra.push(format!("RemoteForward {prev}"));
-                }
+                block.remote_forward.push(value.to_string());
             }
             "dynamicforward" if in_host_block => {
-                if let Some(prev) = block.dynamic_forward.replace(value.to_string()) {
-                    block.extra.push(format!("DynamicForward {prev}"));
-                }
+                block.dynamic_forward.push(value.to_string());
             }
             "include" if in_host_block => {
                 let included = resolve_include(&value, base_dir, visited, depth);
