@@ -8,6 +8,42 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.13.1] — 2026-06-26
+
+Single-key UX addition. The auto-probe model from v0.3 (probe at
+startup + after edits, never on a timer) stays — `r` just adds
+the explicit "refresh the dots without touching anything" trigger
+that the picker-and-go workflow was missing between auto-rounds.
+
+### Added
+
+- **`r` re-probes every host's TCP reachability**. Previously
+  the only way to update the list's reachability glyphs was to
+  edit something (`Enter` → save) or to use `g` for the
+  selected host only. Now `r` triggers
+  `ProbePool::refresh(&app.hosts)` — same call path the
+  SaveState / EditConfig actions already use — and emits a
+  status hint "probing N host(s)…". Empty host list is a
+  no-op (no action, no status noise).
+
+  The choice of `r` reuses the slot vacated when v0.6 dropped
+  the old `r` (manage-mode reconnect) for inline parity.
+
+  This is intentionally *not* a background polling timer:
+  - Repeated SYNs from one client to many hosts can be
+    interpreted as a port scan by firewall / IDS and trigger
+    fail2ban-style automatic blocks.
+  - sshc is a picker, not a dashboard — anti-feature 4
+    explicitly rules out "daemon / always-on process".
+
+### Tests
+
+- `test_r_key_emits_refresh_reachability_with_status_hint` —
+  three hosts, `r` fires the action and the status reads
+  "probing 3".
+- `test_r_key_on_empty_host_list_is_noop` — empty list →
+  no action, no status.
+
 ## [0.13.0] — 2026-06-26
 
 Mixed cycle. One deps swap (G1 toml_edit removal) takes another
