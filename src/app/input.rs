@@ -86,6 +86,7 @@ impl App {
                 KeyCode::Char('c') => self.copy_ssh_command_for_selected(),
                 KeyCode::Char('g') => self.reach_check_for_selected(),
                 KeyCode::Char('M') => self.promote_selected(),
+                KeyCode::Char('S') => self.cycle_sort_axis(),
                 KeyCode::Char('i') => {
                     // Force-retry the Include injection. Useful when the user
                     // declined first-run setup and now wants to enable writes,

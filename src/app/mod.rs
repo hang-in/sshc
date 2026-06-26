@@ -33,6 +33,41 @@ pub enum AppMode {
     Modal(ModalKind),
 }
 
+/// v0.10 G5: which secondary key sorts the host list when the user
+/// hasn't typed a fuzzy filter. Favorites always sort first regardless.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortAxis {
+    /// Alphabetical by alias (default — matches the v0.6 behavior
+    /// before the sort key was a thing).
+    #[default]
+    AliasAlpha,
+    /// Most recently connected first, then everything else after.
+    RecentDesc,
+    /// `ProbeState::Open` first, then `InFlight`, `Unknown`, `Failed`.
+    /// Lets the user see the hosts that are reachable right now.
+    ProbeStateOpenFirst,
+}
+
+impl SortAxis {
+    /// Display label used in the status bar after `S` cycles the axis.
+    pub fn label(self) -> &'static str {
+        match self {
+            SortAxis::AliasAlpha => "alias",
+            SortAxis::RecentDesc => "recent",
+            SortAxis::ProbeStateOpenFirst => "reachability",
+        }
+    }
+
+    /// Move to the next axis in the cycle.
+    pub fn next(self) -> Self {
+        match self {
+            SortAxis::AliasAlpha => SortAxis::RecentDesc,
+            SortAxis::RecentDesc => SortAxis::ProbeStateOpenFirst,
+            SortAxis::ProbeStateOpenFirst => SortAxis::AliasAlpha,
+        }
+    }
+}
+
 /// Tracks why a form was opened, so the submitted payload can be routed.
 #[derive(Debug, Clone)]
 pub(super) enum FormContext {
@@ -71,6 +106,11 @@ pub struct App {
     /// alias. Cleared on any apply_form / apply_delete / apply_tags
     /// success so we never show stale resolution after edits.
     pub(super) validation_cache: std::collections::HashMap<String, String>,
+    /// v0.10 G5: secondary sort axis for the host list when the
+    /// fuzzy filter query is empty. Cycles on `S` in manage mode.
+    /// Session-only — not persisted across sshc invocations (the
+    /// v0.11 decision after user feedback).
+    pub(super) sort_axis: SortAxis,
     pending_action: Option<AppAction>,
     active_form_context: Option<FormContext>,
     matcher: nucleo::Matcher,
@@ -107,6 +147,7 @@ impl App {
             probe_generation: 0,
             sshc_conf_path: crate::storage::sshc_conf_path(),
             validation_cache: std::collections::HashMap::new(),
+            sort_axis: SortAxis::default(),
             pending_action: None,
             active_form_context: None,
             matcher: nucleo::Matcher::new(nucleo::Config::DEFAULT),
@@ -237,6 +278,18 @@ impl App {
 
     pub fn total_host_count(&self) -> usize {
         self.hosts.len()
+    }
+
+    /// v0.10 G5: advance the secondary sort axis to the next value in
+    /// the cycle and re-run the filter so the host list re-orders
+    /// immediately. Emits an Info status with the new label.
+    pub(super) fn cycle_sort_axis(&mut self) {
+        self.sort_axis = self.sort_axis.next();
+        self.apply_filter();
+        self.status_message = Some(StatusMessage::new(format!(
+            "sorted by {}",
+            self.sort_axis.label()
+        )));
     }
 
     /// v0.9 G3: drop a sticky-Error status the moment the user takes

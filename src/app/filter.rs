@@ -1,6 +1,7 @@
 //! Filter + navigation methods on `impl super::App`.
 
-use super::App;
+use super::{App, SortAxis};
+use crate::probe::ProbeState;
 
 impl App {
     /// Re-compute `filtered` based on the current `filter_query`.
@@ -11,8 +12,9 @@ impl App {
     ///
     /// Sort order (highest priority first):
     ///   1. favorited hosts (`state.memory.favorites`) float to the top
-    ///   2. recency — most-recent connection first
-    ///   3. fuzzy / tag-substring score, descending
+    ///   2. fuzzy / tag-substring score, descending (when there's a query)
+    ///   3. v0.10 G5 secondary axis — alias / recent / reachability — when
+    ///      no fuzzy query is active
     pub(super) fn apply_filter(&mut self) {
         let query = self.filter_query.clone();
         // Snapshot the favorites list once so the sort comparator doesn't
@@ -28,6 +30,19 @@ impl App {
             .collect();
         let is_fav = |idx: usize| favorites.contains(&self.hosts[idx].alias);
         let ts_of = |idx: usize| recency.get(&self.hosts[idx].alias).copied().unwrap_or(0);
+        let probe_rank = |idx: usize| match self.probe_states.get(idx).copied() {
+            Some(ProbeState::Open) => 0u8,
+            Some(ProbeState::InFlight) => 1,
+            Some(ProbeState::Unknown) | None => 2,
+            Some(ProbeState::Failed) => 3,
+        };
+        let axis = self.sort_axis;
+        let alias_of = |idx: usize| self.hosts[idx].alias.to_lowercase();
+        let axis_cmp = |a: usize, b: usize| match axis {
+            SortAxis::AliasAlpha => alias_of(a).cmp(&alias_of(b)),
+            SortAxis::RecentDesc => ts_of(b).cmp(&ts_of(a)),
+            SortAxis::ProbeStateOpenFirst => probe_rank(a).cmp(&probe_rank(b)),
+        };
 
         if let Some(tag_query) = query.strip_prefix('@') {
             let needle = tag_query.trim().to_lowercase();
@@ -44,7 +59,7 @@ impl App {
                 })
                 .map(|(i, _)| i)
                 .collect();
-            indices.sort_by(|&a, &b| is_fav(b).cmp(&is_fav(a)).then(ts_of(b).cmp(&ts_of(a))));
+            indices.sort_by(|&a, &b| is_fav(b).cmp(&is_fav(a)).then_with(|| axis_cmp(a, b)));
             self.filtered = indices;
         } else {
             let needle = query.to_lowercase();
@@ -64,11 +79,15 @@ impl App {
                     }
                 })
                 .collect();
+            // With a non-empty fuzzy query the score is the user's
+            // strongest signal; axis is a tie-breaker.
+            // With no query, the score is 1 for every host (the empty
+            // fuzzy match), so axis dominates exactly as expected.
             scored.sort_by(|a, b| {
                 is_fav(b.0)
                     .cmp(&is_fav(a.0))
-                    .then(ts_of(b.0).cmp(&ts_of(a.0)))
                     .then(b.1.cmp(&a.1))
+                    .then_with(|| axis_cmp(a.0, b.0))
             });
             self.filtered = scored.into_iter().map(|(i, _)| i).collect();
         }

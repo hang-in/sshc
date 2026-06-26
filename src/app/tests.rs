@@ -218,6 +218,80 @@ fn test_open_promote_form_alias_not_found_silent_noop() {
 }
 
 #[test]
+fn test_sort_axis_alias_alpha_default() {
+    let hosts = vec![make_host("zeta"), make_host("alpha"), make_host("middle")];
+    let mut app = App::new(hosts);
+    app.apply_filter();
+    let aliases: Vec<&str> = app
+        .filtered
+        .iter()
+        .map(|&i| app.hosts[i].alias.as_str())
+        .collect();
+    assert_eq!(aliases, vec!["alpha", "middle", "zeta"]);
+}
+
+#[test]
+fn test_sort_axis_cycle_via_capital_s() {
+    let hosts = vec![make_host("a")];
+    let mut app = App::new(hosts);
+    use crate::app::SortAxis;
+    assert_eq!(app.sort_axis, SortAxis::AliasAlpha);
+    app.handle_key(KeyEvent::from(KeyCode::Char('S')));
+    assert_eq!(app.sort_axis, SortAxis::RecentDesc);
+    app.handle_key(KeyEvent::from(KeyCode::Char('S')));
+    assert_eq!(app.sort_axis, SortAxis::ProbeStateOpenFirst);
+    app.handle_key(KeyEvent::from(KeyCode::Char('S')));
+    assert_eq!(app.sort_axis, SortAxis::AliasAlpha);
+    // Each cycle leaves a status hint.
+    let msg = app.status_message.as_ref().unwrap().text();
+    assert!(msg.contains("sorted by"), "got {msg:?}");
+}
+
+#[test]
+fn test_sort_axis_recent_floats_recent_to_top() {
+    use crate::app::SortAxis;
+    use crate::state::schema::RecentEntry;
+    let hosts = vec![make_host("alpha"), make_host("beta"), make_host("zeta")];
+    let mut app = App::new(hosts);
+    app.state.memory.recent.push(RecentEntry {
+        alias: "zeta".into(),
+        ts: 100,
+    });
+    app.state.memory.recent.push(RecentEntry {
+        alias: "beta".into(),
+        ts: 50,
+    });
+    app.sort_axis = SortAxis::RecentDesc;
+    app.apply_filter();
+    let aliases: Vec<&str> = app
+        .filtered
+        .iter()
+        .map(|&i| app.hosts[i].alias.as_str())
+        .collect();
+    // zeta (ts=100) before beta (ts=50); alpha (no recency, ts=0) last.
+    assert_eq!(aliases, vec!["zeta", "beta", "alpha"]);
+}
+
+#[test]
+fn test_sort_axis_probe_state_floats_open_to_top() {
+    use crate::app::SortAxis;
+    use crate::probe::ProbeState;
+    let hosts = vec![make_host("a"), make_host("b"), make_host("c")];
+    let mut app = App::new(hosts);
+    app.probe_states[0] = ProbeState::Failed;
+    app.probe_states[1] = ProbeState::Open;
+    app.probe_states[2] = ProbeState::Unknown;
+    app.sort_axis = SortAxis::ProbeStateOpenFirst;
+    app.apply_filter();
+    let aliases: Vec<&str> = app
+        .filtered
+        .iter()
+        .map(|&i| app.hosts[i].alias.as_str())
+        .collect();
+    assert_eq!(aliases, vec!["b", "c", "a"]);
+}
+
+#[test]
 fn test_app_initial_last_connected_none() {
     let app = App::new(vec![]);
     assert!(app.last_connected.is_none());
