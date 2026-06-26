@@ -80,14 +80,13 @@ impl App {
             return;
         }
         let port_str = host.port.map(|p| p.to_string()).unwrap_or_default();
-        // R2 transitional: HostForm holds one path string per
-        // IdentityFile row. Surface the first entry; R3 promotes
-        // the field to a list modal like forwarding.
-        let identity = host
+        // v0.12 G1 R3: HostForm now takes the full Vec — each entry
+        // becomes a row in the IdentityFile list modal.
+        let identity: Vec<String> = host
             .identity_file
-            .first()
+            .iter()
             .map(|p| p.display().to_string())
-            .unwrap_or_default();
+            .collect();
         let tags_csv = host.tags.join(", ");
         let extra_joined = host.extra.join("; ");
         let local_forward = host.local_forward.clone();
@@ -98,7 +97,7 @@ impl App {
             host.hostname.as_deref().unwrap_or(""),
             host.user.as_deref().unwrap_or(""),
             &port_str,
-            &identity,
+            identity,
             &tags_csv,
             local_forward,
             remote_forward,
@@ -173,14 +172,13 @@ impl App {
             return;
         }
         let port_str = host.port.map(|p| p.to_string()).unwrap_or_default();
-        // R2 transitional: HostForm holds one path string per
-        // IdentityFile row. Surface the first entry; R3 promotes
-        // the field to a list modal like forwarding.
-        let identity = host
+        // v0.12 G1 R3: HostForm now takes the full Vec — each entry
+        // becomes a row in the IdentityFile list modal.
+        let identity: Vec<String> = host
             .identity_file
-            .first()
+            .iter()
             .map(|p| p.display().to_string())
-            .unwrap_or_default();
+            .collect();
         let tags_csv = host.tags.join(", ");
         let extra_joined = host.extra.join("; ");
         let local_forward = host.local_forward.clone();
@@ -191,7 +189,7 @@ impl App {
             host.hostname.as_deref().unwrap_or(""),
             host.user.as_deref().unwrap_or(""),
             &port_str,
-            &identity,
+            identity,
             &tags_csv,
             local_forward,
             remote_forward,
@@ -370,7 +368,7 @@ impl App {
         hostname: String,
         user: String,
         port: String,
-        identity_file: String,
+        identity_file: Vec<String>,
         tags_csv: String,
         extra: String,
         local_forward: Vec<String>,
@@ -382,14 +380,14 @@ impl App {
         } else {
             port.parse().ok()
         };
-        // R2 transitional: HostForm still passes one String for
-        // IdentityFile (until R3 promotes the row to a list).
-        // Empty input → empty Vec; non-empty → single-entry Vec.
-        let identity: Vec<std::path::PathBuf> = if identity_file.is_empty() {
-            Vec::new()
-        } else {
-            vec![std::path::PathBuf::from(identity_file)]
-        };
+        // v0.12 G1 R3: IdentityFile arrives as Vec<String> from the
+        // ListEditModal. Skip empty entries (a defence in depth — the
+        // modal validator rejects them on Enter already).
+        let identity: Vec<std::path::PathBuf> = identity_file
+            .into_iter()
+            .filter(|s| !s.trim().is_empty())
+            .map(std::path::PathBuf::from)
+            .collect();
         let user_field = if user.is_empty() { None } else { Some(user) };
         let extra_lines: Vec<String> = extra
             .split(';')

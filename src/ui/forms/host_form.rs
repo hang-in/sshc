@@ -39,13 +39,25 @@ pub struct HostForm {
     local_forward_entries: Vec<String>,
     remote_forward_entries: Vec<String>,
     dynamic_forward_entries: Vec<String>,
-    /// Active child modal when the user is editing one of the three
-    /// forwarding lists. Rendering + key dispatch route through this
-    /// when set.
-    forwarding_modal: Option<ListEditModal>,
-    /// Which forwarding kind the open modal is editing — used to
-    /// route the result back into the right Vec on close.
-    forwarding_modal_kind: Option<ForwardingKind>,
+    /// v0.12 G1 R3: IdentityFile is now a Vec too. Like the
+    /// forwarding triple, fields[IDENTITY_INDEX] holds the display
+    /// summary; the real entries live here.
+    identity_file_entries: Vec<String>,
+    /// Active child modal when the user is editing one of the
+    /// list-shaped rows (forwarding OR IdentityFile). Rendering +
+    /// key dispatch route through this when set.
+    child_modal: Option<ListEditModal>,
+    /// Which row the open modal is editing — used to route the
+    /// result back into the right Vec on close.
+    child_target: Option<ChildTarget>,
+}
+
+/// v0.12 G1 R3: which HostForm row a child `ListEditModal` is
+/// currently editing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChildTarget {
+    Forwarding(ForwardingKind),
+    IdentityFile,
 }
 
 impl HostForm {
@@ -63,8 +75,9 @@ impl HostForm {
             local_forward_entries: Vec::new(),
             remote_forward_entries: Vec::new(),
             dynamic_forward_entries: Vec::new(),
-            forwarding_modal: None,
-            forwarding_modal_kind: None,
+            identity_file_entries: Vec::new(),
+            child_modal: None,
+            child_target: None,
         }
     }
 
@@ -79,7 +92,7 @@ impl HostForm {
         hostname: &str,
         user: &str,
         port: &str,
-        identity_file: &str,
+        identity_file: Vec<String>,
         tags_csv: &str,
         local_forward: Vec<String>,
         remote_forward: Vec<String>,
@@ -93,7 +106,7 @@ impl HostForm {
                 hostname.to_string(),
                 user.to_string(),
                 port.to_string(),
-                identity_file.to_string(),
+                String::new(), // fields[4]: synced from identity_file_entries
                 tags_csv.to_string(),
                 String::new(),
                 String::new(),
@@ -106,17 +119,20 @@ impl HostForm {
             local_forward_entries: local_forward,
             remote_forward_entries: remote_forward,
             dynamic_forward_entries: dynamic_forward,
-            forwarding_modal: None,
-            forwarding_modal_kind: None,
+            identity_file_entries: identity_file,
+            child_modal: None,
+            child_target: None,
         };
-        form.refresh_forwarding_summaries();
+        form.refresh_list_summaries();
         form
     }
 
-    /// v0.10 G1: rebuild the summary text shown in `fields[6/7/8]` from
-    /// the underlying entry vectors. Called after `from_host` and after
-    /// a forwarding modal closes with new entries.
-    fn refresh_forwarding_summaries(&mut self) {
+    /// v0.10 G1 + v0.12 G1 R3: rebuild the summary text shown in
+    /// `fields[IDENTITY_INDEX, 6, 7, 8]` from the underlying entry
+    /// vectors. Called after `from_host` and after a list-edit modal
+    /// closes with new entries.
+    fn refresh_list_summaries(&mut self) {
+        self.fields[IDENTITY_INDEX] = Self::summary_for(&self.identity_file_entries);
         self.fields[LOCAL_FORWARD_INDEX] = Self::summary_for(&self.local_forward_entries);
         self.fields[REMOTE_FORWARD_INDEX] = Self::summary_for(&self.remote_forward_entries);
         self.fields[DYNAMIC_FORWARD_INDEX] = Self::summary_for(&self.dynamic_forward_entries);
@@ -157,29 +173,21 @@ impl HostForm {
 
     fn open_forwarding_modal(&mut self, kind: ForwardingKind) {
         let entries = self.entries_for(kind).clone();
-        self.forwarding_modal = Some(ListEditModal::new(ListKind::Forwarding(kind), entries));
-        self.forwarding_modal_kind = Some(kind);
+        self.child_modal = Some(ListEditModal::new(ListKind::Forwarding(kind), entries));
+        self.child_target = Some(ChildTarget::Forwarding(kind));
     }
 
-    /// Cycle `fields[IDENTITY_INDEX]` through `identity_candidates`.
-    /// Called from ↑/↓ when IdentityFile is the active field.
-    fn cycle_identity(&mut self, forward: bool) {
-        if self.identity_candidates.is_empty() {
-            return;
-        }
-        let len = self.identity_candidates.len();
-        let current = &self.fields[IDENTITY_INDEX];
-        let pos = self
-            .identity_candidates
-            .iter()
-            .position(|p| p.display().to_string() == *current);
-        let next = match (pos, forward) {
-            (None, true) => 0,
-            (None, false) => len - 1,
-            (Some(i), true) => (i + 1) % len,
-            (Some(i), false) => (i + len - 1) % len,
-        };
-        self.fields[IDENTITY_INDEX] = self.identity_candidates[next].display().to_string();
+    /// v0.12 G1 R3: open the IdentityFile child modal. Seeds the
+    /// modal with the current Vec + the candidate list so the
+    /// v0.7.1 ↑/↓ picker survives inside edit mode.
+    fn open_identity_modal(&mut self) {
+        let entries = self.identity_file_entries.clone();
+        let candidates = self.identity_candidates.clone();
+        self.child_modal = Some(ListEditModal::new(
+            ListKind::IdentityFile { candidates },
+            entries,
+        ));
+        self.child_target = Some(ChildTarget::IdentityFile);
     }
 
     fn validate(&self) -> Result<FormPayload, String> {
@@ -207,25 +215,11 @@ impl HostForm {
             }
         }
 
-        let id_file = self.fields[4].trim();
-        // '\\' is a path separator on Windows (e.g. C:\Users\me\.ssh\id_ed25519),
-        // so it cannot be on the forbidden list there. Unix keeps it forbidden
-        // because backslash has no place in a POSIX path and would only show up
-        // as a shell escape attempt.
-        let forbidden: &[char] = if cfg!(windows) {
-            &[
-                ';', '|', '&', '$', '`', '<', '>', '(', ')', '{', '}', '*', '?', '[', ']', '"',
-                '\'',
-            ]
-        } else {
-            &[
-                ';', '|', '&', '$', '`', '<', '>', '(', ')', '{', '}', '*', '?', '[', ']', '"',
-                '\'', '\\',
-            ]
-        };
-        if id_file.chars().any(|c| forbidden.contains(&c)) {
-            return Err("IdentityFile contains forbidden shell characters".to_string());
-        }
+        // v0.12 G1 R3: IdentityFile entries are now managed by
+        // `ListEditModal` (kind = IdentityFile). The modal's per-entry
+        // validator handles path-shape checks (cfg(windows) keeps the
+        // backslash exception that v0.7.2 introduced). The form just
+        // hands the Vec through.
 
         let tags_csv = self.fields[5].trim();
         let distinct: std::collections::HashSet<_> =
@@ -245,7 +239,7 @@ impl HostForm {
             hostname: hostname.to_string(),
             user: self.fields[2].trim().to_string(),
             port: port_str.to_string(),
-            identity_file: id_file.to_string(),
+            identity_file: self.identity_file_entries.clone(),
             tags_csv: tags_csv.to_string(),
             local_forward: self.local_forward_entries.clone(),
             remote_forward: self.remote_forward_entries.clone(),
@@ -267,7 +261,7 @@ impl FormState for HostForm {
         // v0.10 G1: when a forwarding list modal is open, it owns the
         // whole modal area. The parent HostForm waits underneath
         // until the child closes.
-        if let Some(ref child) = self.forwarding_modal {
+        if let Some(ref child) = self.child_modal {
             child.render(area, f);
             return;
         }
@@ -373,10 +367,13 @@ impl FormState for HostForm {
 
         let footer_line = if let Some(ref err) = self.error {
             Line::from(Span::styled(err.clone(), Style::default().fg(Color::Red)))
-        } else if self.active_index == IDENTITY_INDEX && !self.identity_candidates.is_empty() {
+        } else if self.active_index == IDENTITY_INDEX {
+            // v0.12 G1 R3: the form-level ↑/↓ key picker is gone —
+            // it moved inside the list modal. Hint surfaces Enter
+            // as the gateway and mentions the candidate count.
             Line::from(Span::styled(
                 format!(
-                    " ↑/↓ pick from {} key(s) in ~/.ssh • Tab move • Enter submit • Esc cancel",
+                    " Enter to open the IdentityFile list ({} key(s) discoverable) • Tab move • Esc cancel",
                     self.identity_candidates.len()
                 ),
                 Style::default().fg(Color::Gray),
@@ -391,35 +388,40 @@ impl FormState for HostForm {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> FormOutcome {
-        // v0.10 G1: route every keystroke into the active forwarding
-        // modal until it reports Done/Cancel.
-        if self.forwarding_modal.is_some() {
+        // v0.10 G1 + v0.12 G1 R3: route every keystroke into the
+        // active child modal until it reports Done/Cancel. The modal
+        // handles forwarding triples AND IdentityFile.
+        if self.child_modal.is_some() {
             let outcome = self
-                .forwarding_modal
+                .child_modal
                 .as_mut()
                 .map(|m| m.handle_key(key))
                 .unwrap_or(ListOutcome::Stay);
             match outcome {
                 ListOutcome::Stay => {}
                 ListOutcome::Done => {
-                    let modal = self.forwarding_modal.take().unwrap();
-                    let kind = self.forwarding_modal_kind.take().unwrap();
+                    let modal = self.child_modal.take().unwrap();
+                    let target = self.child_target.take().unwrap();
                     let new_entries = modal.entries().to_vec();
-                    self.set_entries_for(kind, new_entries);
-                    self.refresh_forwarding_summaries();
+                    match target {
+                        ChildTarget::Forwarding(kind) => self.set_entries_for(kind, new_entries),
+                        ChildTarget::IdentityFile => self.identity_file_entries = new_entries,
+                    }
+                    self.refresh_list_summaries();
                 }
                 ListOutcome::Cancel => {
-                    self.forwarding_modal = None;
-                    self.forwarding_modal_kind = None;
+                    self.child_modal = None;
+                    self.child_target = None;
                 }
             }
             return FormOutcome::Stay;
         }
-        // Forwarding rows are summary-only: any character / backspace
-        // is ignored. Enter on them opens the child modal.
-        let on_forwarding = matches!(
+        // List-shaped rows are summary-only: char / backspace silently
+        // ignored, Enter opens the child modal. Covers the three
+        // forwarding kinds + IdentityFile (v0.12 G1 R3).
+        let on_list_row = matches!(
             self.active_index,
-            LOCAL_FORWARD_INDEX | REMOTE_FORWARD_INDEX | DYNAMIC_FORWARD_INDEX
+            IDENTITY_INDEX | LOCAL_FORWARD_INDEX | REMOTE_FORWARD_INDEX | DYNAMIC_FORWARD_INDEX
         );
         match key.code {
             KeyCode::Tab => {
@@ -430,23 +432,16 @@ impl FormState for HostForm {
                 self.active_index = (self.active_index + FIELD_COUNT - 1) % FIELD_COUNT;
                 FormOutcome::Stay
             }
-            // IdentityFile-only: ↑/↓ cycles through ~/.ssh key candidates.
-            KeyCode::Up if self.active_index == IDENTITY_INDEX => {
-                self.cycle_identity(false);
-                FormOutcome::Stay
-            }
-            KeyCode::Down if self.active_index == IDENTITY_INDEX => {
-                self.cycle_identity(true);
-                FormOutcome::Stay
-            }
-            KeyCode::Backspace if !on_forwarding => {
+            KeyCode::Backspace if !on_list_row => {
                 self.fields[self.active_index].pop();
                 FormOutcome::Stay
             }
             KeyCode::Esc => FormOutcome::Cancel,
             KeyCode::Enter => {
-                if on_forwarding {
-                    if let Some(kind) = Self::forwarding_kind_for(self.active_index) {
+                if on_list_row {
+                    if self.active_index == IDENTITY_INDEX {
+                        self.open_identity_modal();
+                    } else if let Some(kind) = Self::forwarding_kind_for(self.active_index) {
                         self.open_forwarding_modal(kind);
                     }
                     return FormOutcome::Stay;
@@ -465,7 +460,7 @@ impl FormState for HostForm {
                 }
             }
             KeyCode::Char(c) => {
-                if on_forwarding {
+                if on_list_row {
                     return FormOutcome::Stay;
                 }
                 if key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -596,16 +591,25 @@ mod tests {
 
     #[test]
     fn test_validation_shell_metachar() {
+        // v0.7.2 → v0.12 R3 move: IdentityFile path validation
+        // lives in ListEditModal now. Drive it through the modal
+        // surface — open the IdentityFile child, type a value with
+        // a shell metacharacter, press Enter, expect the modal to
+        // stay open with an error and entries unchanged.
         let mut form = HostForm::new(Vec::new());
         form.fields[0] = "dev".to_string();
         form.fields[1] = "h".to_string();
-        form.fields[4] = "/etc/key;rm".to_string();
-        form.active_index = 9;
-        assert!(matches!(
-            form.handle_key(ke(KeyCode::Enter)),
-            FormOutcome::Stay
-        ));
-        assert!(form.error.is_some());
+        form.active_index = IDENTITY_INDEX;
+        form.handle_key(ke(KeyCode::Enter)); // opens the IdentityFile modal
+        assert!(form.child_modal.is_some());
+        form.handle_key(ke(KeyCode::Enter)); // enters edit mode on the "+ add" row
+        for c in "/etc/key;rm".chars() {
+            form.handle_key(ke(KeyCode::Char(c)));
+        }
+        form.handle_key(ke(KeyCode::Enter)); // attempts to commit the bad value
+        let modal = form.child_modal.as_ref().expect("modal still open");
+        // Bad value did not land:
+        assert!(modal.entries().is_empty());
     }
 
     #[test]
@@ -615,7 +619,7 @@ mod tests {
             "h",
             "u",
             "22",
-            "/k",
+            vec!["/k".to_string()],
             "x,y",
             vec!["8080 localhost:80".to_string()],
             vec!["9090 127.0.0.1:9090".to_string()],

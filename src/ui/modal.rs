@@ -56,7 +56,10 @@ pub enum FormPayload {
         hostname: String,
         user: String,
         port: String,
-        identity_file: String,
+        /// v0.12 G1: list of IdentityFile path strings (empty Vec ↔
+        /// no key). OpenSSH allows multiple per host — same shape
+        /// rationale as the v0.10 G1 forwarding fields below.
+        identity_file: Vec<String>,
         tags_csv: String,
         /// Freeform SSH config directives (one per line, e.g.
         /// `ProxyJump bastion`). Multi-line edit not implemented in v0.4;

@@ -616,7 +616,7 @@ fn test_apply_form_add_host_writes_through_locked_writer() {
         hostname: "1.2.3.4".to_string(),
         user: String::new(),
         port: String::new(),
-        identity_file: String::new(),
+        identity_file: Vec::new(),
         tags_csv: String::new(),
         extra: String::new(),
         local_forward: Vec::new(),

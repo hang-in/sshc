@@ -18,6 +18,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
+use std::path::PathBuf;
 
 /// Which forwarding directive kind this modal is editing. Drives the
 /// title bar + the validator picked for new entries.
@@ -47,25 +48,36 @@ impl ForwardingKind {
     }
 }
 
-/// v0.12 G1: which kind of list this modal is editing. R1 only carries
-/// the `Forwarding(_)` variant; R3 adds `IdentityFile { candidates }`.
-/// Driving title/validate through the enum lets the modal stay one
-/// type as new list kinds land.
+/// v0.12 G1: which kind of list this modal is editing. R1 wrapped the
+/// `Forwarding(_)` variant; R3 adds `IdentityFile { candidates }` so
+/// the IdentityFile row in `HostForm` reuses the same modal surface.
+/// Driving title/validate/edit-mode hints through the enum lets the
+/// modal stay one type as new list kinds land.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ListKind {
     Forwarding(ForwardingKind),
+    /// `candidates` carries the `~/.ssh/*` private-key paths the form
+    /// discovered up-front (via `app::forms::discover_identity_files`).
+    /// In the modal's edit mode `↑`/`↓` cycle through these — this is
+    /// the v0.7.1 form-level picker behaviour, now moved inside the
+    /// modal so the multi-entry case has a single home.
+    IdentityFile {
+        candidates: Vec<PathBuf>,
+    },
 }
 
 impl ListKind {
     pub fn title(&self) -> &'static str {
         match self {
             ListKind::Forwarding(k) => k.title(),
+            ListKind::IdentityFile { .. } => "IdentityFile",
         }
     }
 
     pub fn validate(&self, value: &str) -> bool {
         match self {
             ListKind::Forwarding(k) => k.validate(value),
+            ListKind::IdentityFile { .. } => looks_like_identity_file_path(value),
         }
     }
 
@@ -79,8 +91,45 @@ impl ListKind {
                 "expected `[bind:]port host:hostport`"
             }
             ListKind::Forwarding(ForwardingKind::Dynamic) => "expected `[bind:]port`",
+            ListKind::IdentityFile { .. } => "expected an `IdentityFile` path",
         }
     }
+
+    /// Convenience: pull the candidate Vec out for ↑/↓ cycling in
+    /// edit mode. Returns `None` for kinds that don't cycle.
+    pub fn candidates(&self) -> Option<&[PathBuf]> {
+        match self {
+            ListKind::IdentityFile { candidates } => Some(candidates),
+            _ => None,
+        }
+    }
+}
+
+/// v0.7.0–v0.7.2 carry-over: accept what looks like a filesystem path
+/// for an `IdentityFile`. The Unix rule is "any char except shell
+/// metacharacters and the quoting set `?*<>|`"; Windows additionally
+/// permits the backslash that shipped paths use (the v0.7.2 fix).
+/// Empty input rejected.
+fn looks_like_identity_file_path(s: &str) -> bool {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    // Shell metacharacters that previously sat in HostForm::validate —
+    // moved here in v0.12 R3 along with the rest of the row's
+    // validation. `\\` is a path separator on Windows so it stays
+    // off the forbidden list there.
+    #[cfg(windows)]
+    let forbidden: &[char] = &[
+        ';', '|', '&', '$', '`', '<', '>', '(', ')', '{', '}', '*', '?', '[', ']', '"', '\'',
+    ];
+    #[cfg(not(windows))]
+    let forbidden: &[char] = &[
+        ';', '|', '&', '$', '`', '<', '>', '(', ')', '{', '}', '*', '?', '[', ']', '"', '\'', '\\',
+    ];
+    !trimmed
+        .chars()
+        .any(|c| c.is_control() || forbidden.contains(&c))
 }
 
 fn looks_like_lr(s: &str) -> bool {
@@ -158,6 +207,31 @@ impl ListEditModal {
         &self.entries
     }
 
+    /// v0.12 G1 R3: implements the v0.7.1 candidate-cycle picker
+    /// inside the modal. When the user is editing an `IdentityFile`
+    /// row, ↑/↓ overwrites the buffer with the next/prev candidate.
+    /// If the current buffer isn't already one of the candidates,
+    /// `forward=true` starts at index 0, `false` at the last index.
+    fn cycle_buffer_through_candidates(kind: &ListKind, buf: &mut String, forward: bool) {
+        let Some(candidates) = kind.candidates() else {
+            return;
+        };
+        if candidates.is_empty() {
+            return;
+        }
+        let len = candidates.len();
+        let pos = candidates
+            .iter()
+            .position(|p| p.display().to_string() == *buf);
+        let next = match (pos, forward) {
+            (None, true) => 0,
+            (None, false) => len - 1,
+            (Some(i), true) => (i + 1) % len,
+            (Some(i), false) => (i + len - 1) % len,
+        };
+        *buf = candidates[next].display().to_string();
+    }
+
     pub fn render(&self, area: Rect, f: &mut Frame) {
         let block = Block::default()
             .title(format!(" {} ", self.kind.title()))
@@ -205,10 +279,22 @@ impl ListEditModal {
             f.render_widget(Paragraph::new(line), *slot);
         }
 
-        let hint = match (self.editing.is_some(), self.selected == self.entries.len()) {
-            (true, _) => " Enter save • Esc cancel edit",
-            (false, true) => " Enter new entry • Esc done",
-            (false, false) => " Enter edit • d delete • ↑/↓ move • Esc done",
+        // v0.12 G1 R3: IdentityFile edit mode adds ↑/↓ for candidate
+        // cycling — surface the candidate count in the hint so the
+        // shortcut is discoverable.
+        let picker_n = if self.editing.is_some() {
+            self.kind.candidates().map(|c| c.len()).unwrap_or(0)
+        } else {
+            0
+        };
+        let hint: String = match (self.editing.is_some(), self.selected == self.entries.len()) {
+            (true, _) if picker_n > 0 => format!(
+                " Enter save • Esc cancel edit • ↑/↓ pick from {} key(s)",
+                picker_n
+            ),
+            (true, _) => " Enter save • Esc cancel edit".into(),
+            (false, true) => " Enter new entry • Esc done".into(),
+            (false, false) => " Enter edit • d delete • ↑/↓ move • Esc done".into(),
         };
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
@@ -271,6 +357,17 @@ impl ListEditModal {
                 }
                 KeyCode::Backspace => {
                     buf.pop();
+                    ListOutcome::Stay
+                }
+                // v0.12 G1 R3: edit-mode ↑/↓ cycles `IdentityFile`
+                // candidates so the v0.7.1 picker behaviour survives
+                // the move into the modal. Other kinds ignore arrows
+                // in edit mode (matches v0.10 behaviour).
+                KeyCode::Up | KeyCode::Down
+                    if matches!(self.kind, ListKind::IdentityFile { .. }) =>
+                {
+                    let forward = matches!(key.code, KeyCode::Down);
+                    Self::cycle_buffer_through_candidates(&self.kind, buf, forward);
                     ListOutcome::Stay
                 }
                 KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -403,6 +500,75 @@ mod tests {
         }
         m.handle_key(ke(KeyCode::Enter));
         assert!(m.entries().is_empty());
+    }
+
+    #[test]
+    fn identity_file_kind_accepts_unix_path() {
+        let mut m = ListEditModal::new(
+            ListKind::IdentityFile {
+                candidates: Vec::new(),
+            },
+            Vec::new(),
+        );
+        m.handle_key(ke(KeyCode::Enter));
+        for c in "/home/u/.ssh/id_ed25519".chars() {
+            m.handle_key(ke(KeyCode::Char(c)));
+        }
+        m.handle_key(ke(KeyCode::Enter));
+        assert_eq!(m.entries(), &["/home/u/.ssh/id_ed25519".to_string()]);
+    }
+
+    #[test]
+    fn identity_file_kind_rejects_shell_metacharacter() {
+        let mut m = ListEditModal::new(
+            ListKind::IdentityFile {
+                candidates: Vec::new(),
+            },
+            Vec::new(),
+        );
+        m.handle_key(ke(KeyCode::Enter));
+        for c in "/etc/key;rm".chars() {
+            m.handle_key(ke(KeyCode::Char(c)));
+        }
+        m.handle_key(ke(KeyCode::Enter));
+        assert!(m.entries().is_empty());
+        assert!(m.error.is_some());
+    }
+
+    #[test]
+    fn identity_file_kind_cycles_candidates_with_arrows_in_edit_mode() {
+        use std::path::PathBuf;
+        let candidates = vec![
+            PathBuf::from("/home/u/.ssh/id_ed25519"),
+            PathBuf::from("/home/u/.ssh/id_rsa"),
+        ];
+        let mut m = ListEditModal::new(ListKind::IdentityFile { candidates }, Vec::new());
+        // Enter edit mode on the "+ add" row, then ↓ → first candidate.
+        m.handle_key(ke(KeyCode::Enter));
+        m.handle_key(ke(KeyCode::Down));
+        assert_eq!(m.editing.as_deref(), Some("/home/u/.ssh/id_ed25519"));
+        // ↓ again → next candidate; wraps on third press.
+        m.handle_key(ke(KeyCode::Down));
+        assert_eq!(m.editing.as_deref(), Some("/home/u/.ssh/id_rsa"));
+        m.handle_key(ke(KeyCode::Down));
+        assert_eq!(m.editing.as_deref(), Some("/home/u/.ssh/id_ed25519"));
+    }
+
+    #[test]
+    fn forwarding_edit_mode_ignores_arrows() {
+        // Regression guard for the v0.10 behaviour: ↑/↓ in edit mode
+        // is candidate-cycle ONLY for IdentityFile; forwarding kinds
+        // treat it as a no-op (the chars don't end up in the buffer
+        // either).
+        let mut m = ListEditModal::new(ListKind::Forwarding(ForwardingKind::Local), Vec::new());
+        m.handle_key(ke(KeyCode::Enter));
+        for c in "8080 a:1".chars() {
+            m.handle_key(ke(KeyCode::Char(c)));
+        }
+        m.handle_key(ke(KeyCode::Down));
+        m.handle_key(ke(KeyCode::Up));
+        // Buffer untouched by the arrow keys.
+        assert_eq!(m.editing.as_deref(), Some("8080 a:1"));
     }
 
     #[test]
