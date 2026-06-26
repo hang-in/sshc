@@ -46,7 +46,7 @@ TUI and `ssh`s straight in — handy for shell aliases and scripts.
 | `sshc` | Inline | Key-driven host picker → ssh → back to shell. No alternate-screen takeover. |
 | `sshc <alias>` | Direct | Skip the picker, look up `<alias>` in your config, `ssh` immediately. Unknown alias → exit 1. |
 | `sshc -m` | Manage | Full TUI: add/edit/delete hosts, tags, probe glyphs, `$EDITOR` jump. |
-| `sshc --doctor` | Doctor | Read-only environment report (`~/.ssh`, sshc.conf, Include line, `ssh` binary, `SSH_AUTH_SOCK` / Windows agent pipes, latest release availability; v0.9 adds CRLF-in-config and nested-Include scope checks). Exits non-zero only on `FAIL`. Set `SSHC_NO_UPDATE_CHECK=1` to skip the network call. |
+| `sshc --doctor` | Doctor | Read-only environment report (`~/.ssh`, sshc.conf, Include line, `ssh` binary, `SSH_AUTH_SOCK` / Windows agent pipes, latest release availability; v0.9 adds CRLF-in-config and nested-Include scope checks; v0.10 adds ProxyCommand-not-on-PATH detection). Exits non-zero only on `FAIL`. Set `SSHC_NO_UPDATE_CHECK=1` to skip the network call. |
 
 Inline mode never leaves your scrollback view. Manage mode opens the
 classic full-screen TUI behind a flag because that's the right surface
@@ -85,18 +85,23 @@ connected hosts float to the top of the list, so the common case is
 | t | edit tags |
 | f | toggle favorite / pin (★) |
 | v | `ssh -G <alias>` validation modal |
-| c | copy `ssh user@host -p port -i key` for the selected host to the clipboard |
+| c | copy `ssh user@host -p port -i key` for the selected host to the clipboard (falls back to OSC 52 when the system clipboard is unreachable — set `SSHC_NO_OSC52` to disable) |
 | g | TCP reachability probe — connects to the resolved hostname:port, reports latency or error |
 | e | open `$EDITOR` at the host's line |
 | M | promote external host into `sshc.conf` (original `~/.ssh/config` entry left intact — delete manually if you don't want duplicate `ssh -G` matches) |
+| S | cycle the host list sort axis (alias → recent → reachability) |
 | i | inject `Include` line into `~/.ssh/config` |
 | ? | help modal |
 | q, Esc | quit / cancel |
 
 Inside a form: Tab/Shift+Tab move fields, Enter submits, Esc cancels,
-Ctrl+U clears the active field. v0.9 adds typed `LocalForward`,
+Ctrl+U clears the active field. v0.9 added typed `LocalForward`,
 `RemoteForward`, and `DynamicForward` rows in a `Forwarding`
-section between Tags and the freeform `Options` field.
+section between Tags and the freeform `Options` field. v0.10 makes
+those three fields *list editors* — Enter on the row opens a
+small list modal where you can add, edit, or delete each entry
+one line at a time; ssh allows multiple of the same directive
+per host and sshc now round-trips that faithfully.
 
 ## Installation
 
@@ -111,7 +116,7 @@ brew install hang-in/tap/sshc
 ### Cargo from git
 
 ```sh
-cargo install --git https://github.com/hang-in/sshc --tag v0.9.0
+cargo install --git https://github.com/hang-in/sshc --tag v0.10.0
 ```
 
 ### From source

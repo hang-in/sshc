@@ -8,6 +8,112 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.10.0] — 2026-06-26
+
+Surface-polish round on top of v0.9. Five goals, all delivered;
+two of them (G1 + G2) close lingering v0.9 trade-offs (typed
+forwarding was single-entry; arboard pulled in image decoders sshc
+never used).
+
+### Added
+
+- **Multi-entry forwarding via a list modal** (G1). v0.9 G5
+  introduced typed `LocalForward` / `RemoteForward` /
+  `DynamicForward` form rows but only stored one entry per kind.
+  OpenSSH lets a host carry several of each; v0.9 cascaded
+  duplicates into the freeform `extra` block as a workaround. v0.10
+  upgrades the model end-to-end: each field is now `Vec<String>`,
+  the parser pushes per occurrence in declaration order, the
+  serializer emits one line per entry, and the form row opens a
+  small list modal (Enter to edit / `d` to delete / Esc to return).
+  Validation per kind matches v0.9 G5 — modal rejects garbage on
+  the Enter that tries to add it.
+- **`S` cycles the host list sort axis** (G5). lazyssh's `s`/`S`
+  parity, but `s` is sshc's ssh-connect key, so v0.10 takes `S`
+  (Shift+s) only — one direction, three axes. Cycles
+  `alias → recent → reachability → alias`. Favorites still float
+  to the top regardless. Status bar shows the new label after each
+  press. Session-only — not persisted across sshc invocations.
+- **OSC 52 clipboard fallback** (G3). v0.9 G4's `c` copy lived
+  directly on `arboard`, which silently failed on Wayland w/o
+  display, in remote SSH sessions, or in tmux without
+  `set -g set-clipboard on`. v0.10 chains: try arboard first, then
+  emit the OSC 52 escape (`ESC ] 52 ; c ; <base64> ESC \`) to
+  stdout so modern emulators (kitty, iTerm2, foot, alacritty,
+  wezterm) can write the user's host clipboard. Status hint shows
+  `copied: … (osc52)` when the fallback fires so the user knows
+  which path won. `SSHC_NO_OSC52` disables the fallback for users
+  who want to keep their terminal output clean.
+- **`ProxyCommand` PATH sanity check in doctor** (G4). For every
+  host parsed out of `~/.ssh/config` (Include chain followed),
+  pull the `ProxyCommand` first token and look it up on `$PATH`
+  (PATHEXT on Windows). When the binary isn't found, doctor
+  surfaces a single WARN line aggregating offenders by host
+  count, e.g.
+
+  `[WARN] proxy commands  not on PATH — 'my-corp-helper' (3 hosts)`
+
+  Variable-laden tokens (`%h`, `$JUMP`) are skipped — we can't
+  resolve those without ssh's own substitution layer. Clean
+  configs see no extra line.
+
+### Changed
+
+- **arboard `image-data` feature off** (G2). sshc only ever writes
+  text via `set_text`. Stripping `default-features` and re-opting
+  into just `wayland-data-control` removes the `image` and `tiff`
+  decoder crates from the transitive graph (verified via
+  `cargo tree --target x86_64-unknown-linux-gnu`). macOS arm64
+  release size barely moves because LTO had already DCE'd the
+  unused code path on that target; Linux and Windows artifacts
+  drop noticeably (-600 to -800 KB depending on platform). New
+  download sizes will land in this release's GitHub artifacts.
+
+### Internal
+
+- New module `src/ui/forms/forwarding_list.rs` (~280 LOC plus 7
+  unit tests). Owns its own validate-per-kind helpers; the v0.9
+  copies in `host_form` were dead-code removed.
+- New module `src/exec/clipboard.rs` (`copy_to_clipboard` +
+  OSC 52 escape builder). `App::copy_ssh_command_for_selected`
+  now routes through it; no in-flight v0.9 G4 surface area
+  changed.
+- `Host::local_forward` / `remote_forward` / `dynamic_forward`
+  promoted from `Option<String>` to `Vec<String>`. All 8 host
+  literal fixtures (model, app/tests, ui/list, ui/preview,
+  ui/modal, inline_app, probe, examples) updated. `FormPayload`
+  and `build_host` follow.
+- `App.sort_axis` is new state with a `SortAxis` enum cycling
+  through three keys. `apply_filter` rewrites the comparator to
+  use it as the secondary key behind favorites and (when present)
+  the fuzzy score.
+- New dep: `base64 = "0.22"` (OSC 52 payload encoder, ~+10 KB
+  binary impact, scoped to `clipboard.rs`).
+- Two arboard dep cleanups removed `image` and `tiff` transitive
+  pulls.
+
+### Migration
+
+- v0.10-written sshc.conf files with *multiple* `LocalForward` /
+  `RemoteForward` / `DynamicForward` lines on a single host:
+  if you roll back to v0.9 (or earlier) and re-save that host,
+  v0.9 will keep only the *last* such line per kind (the cascade
+  workaround was last-wins). The data still survives in the
+  `extra` block from the read side, but the typed form surface
+  drops it. v0.10 reads its own format and v0.9's format
+  identically.
+
+### Out of scope (carried into v0.11+)
+
+- Sort axis persistence in `state.toml` — v0.10 is intentionally
+  session-only; user feedback decides v0.11.
+- ↑/↓ reorder inside the forwarding list modal — add/edit/del
+  only for v0.10.
+- IdentityFile multi-value — same shape as the forwarding work;
+  v0.11 candidate.
+- Hand-rolled clipboard backend (G2 alternative path that wasn't
+  needed — arboard with image-data off was enough).
+
 ## [0.9.0] — 2026-06-26
 
 Feature round + a measurable size win after eight v0.8.x patches.
