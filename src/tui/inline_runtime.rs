@@ -59,7 +59,8 @@ pub fn handle_connect_inline(
     app.last_connected = Some(alias.to_string());
     guard.suspend()?;
 
-    let result = ssh_run(alias, "ssh")?;
+    let (program, args) = crate::exec::ssh::resolve_ssh_command();
+    let result = ssh_run(alias, &program, &args)?;
     Ok(result)
 }
 

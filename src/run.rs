@@ -92,7 +92,8 @@ pub fn direct(alias: &str) -> Result<ExitCode, AppError> {
         eprintln!("sshc: unknown host alias '{alias}'");
         return Ok(ExitCode::FAILURE);
     }
-    let result = crate::exec::ssh::ssh_run(alias, "ssh")?;
+    let (program, args) = crate::exec::ssh::resolve_ssh_command();
+    let result = crate::exec::ssh::ssh_run(alias, &program, &args)?;
     app_state.record_recent(alias);
     let _ = state::save(&app_state);
     Ok(exit_code_from(result))
