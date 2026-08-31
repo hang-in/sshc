@@ -95,7 +95,8 @@ pub fn handle_connect(
     app.last_connected = Some(alias.to_string());
     app.state.memory.last_connected_alias = Some(alias.to_string());
     guard.suspend()?;
-    let result = ssh_run(alias, "ssh");
+    let (program, args) = crate::exec::ssh::resolve_ssh_command();
+    let result = ssh_run(alias, &program, &args);
     guard.resume()?;
     terminal.clear()?;
     match result {

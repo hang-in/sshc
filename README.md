@@ -195,6 +195,13 @@ optional `Include` line.
   `~/.config/sshc/state.toml`.
 - Tags live in `# @tags: a, b, c` comments immediately above each
   `Host` block. Filter with `@<tag>` (e.g. `@prod`).
+- Set `SSHC_SSH_COMMAND` to change what sshc launches instead of
+  `ssh` — applies to inline mode, `sshc -m`'s `s` key, and direct
+  mode (`sshc <alias>`). The value is split on whitespace and the
+  host alias is appended, e.g.
+  `SSHC_SSH_COMMAND="kitty +kitten ssh"` runs
+  `kitty +kitten ssh <alias>` so each connection opens in its own
+  kitty OS window.
 
 ## How it compares
 
